@@ -1,0 +1,10 @@
+*.json
+*.txt
+*.log
+*.t7
+*.pyc
+*.zip
+*.db
+saved_model/
+data/
+img/
