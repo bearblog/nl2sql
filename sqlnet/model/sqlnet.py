@@ -12,8 +12,7 @@ from sqlnet.model.modules.where_relation import WhereRelationPredictor
 
 
 class SQLNet(nn.Module):
-    def __init__(self, word_emb, N_word, N_h=100, N_depth=2,
-            gpu=False, use_ca=True, trainable_emb=False):
+    def __init__(self, word_emb, N_word, N_h=100, N_depth=2,gpu=False, use_ca=True, trainable_emb=False):
         super(SQLNet, self).__init__()
         self.use_ca = use_ca
         self.trainable_emb = trainable_emb
@@ -262,6 +261,7 @@ class SQLNet(nn.Module):
         loss += self.CE(where_rela_score, where_rela_truth)
         return loss
 
+    # 调用的例子 ：one_err, tot_err = model.check_acc(raw_data, pred_queries, query_gt)
     def check_acc(self, vis_info, pred_queries, gt_queries):
         def gen_cond_str(conds, header):
             if len(conds) == 0:

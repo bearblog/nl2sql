@@ -1,14 +1,27 @@
 import torch
 from sqlnet.utils import *
 from sqlnet.model.sqlnet import SQLNet
+import logging
+import os
 
 import argparse
+def get_train_logger():
+    # logger = logging.getLogger('train-{}'.format(self.__class__.__name__))
+    logger = logging.getLogger('train-{}'.format(__name__))
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s')
+    # file_handler = logging.FileHandler(os.path.join(self.args.dout, 'train.log'))
+    file_handler = logging.FileHandler('train.log')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    return logger
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--bs', type=int, default=16, help='Batch size')
     parser.add_argument('--epoch', type=int, default=100, help='Epoch number')
-    parser.add_argument('--gpu', action='store_true', help='Whether use gpu to train')
+    # parser.add_argument('--gpu', action='store_true', help='Whether use gpu to train')
+    parser.add_argument('--gpu', type=int,  default = 1,help='which GPU to use')
     parser.add_argument('--toy', action='store_true', help='If set, use small data for fast debugging')
     parser.add_argument('--ca', action='store_true', help='Whether use column attention')
     parser.add_argument('--train_emb', action='store_true', help='Train word embedding for SQLNet')
@@ -35,7 +48,10 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0)
 
     if args.restore:
-        model_path= 'saved_model/best_model'
+        # whole data
+        # model_path= 'saved_model/best_model'
+        # sample data
+        model_path= 'saved_model/best_model_small'
         print ("Loading trained model from %s" % model_path)
         model.load_state_dict(torch.load(model_path))
 
@@ -46,8 +62,10 @@ if __name__ == '__main__':
     best_ex, best_ex_idx = 0.0, 0
 
     print ("#"*20+"  Star to Train  " + "#"*20)
+    logger = get_train_logger()
     for i in range(args.epoch):
         print ('Epoch %d'%(i+1))
+        logger.info('starting epoch {}'.format(i))
         # train on the train dataset
         train_loss = epoch_train(model, optimizer, batch_size, train_sql, train_table)
         # evaluate on the dev dataset
