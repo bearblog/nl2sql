@@ -1,5 +1,6 @@
 ## version0621 
-官方baseline , 尝试跑通 + 重构
+官方baseline , 尝试跑通 + 重构(bz=16)
+Dev Logic Form Accuracy: 0.312, Execution Accuracy: 0.439
 
 
 ## Experiment analysis
