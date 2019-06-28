@@ -86,7 +86,7 @@ def train(args, use_small):
     best_sn_idx, best_sc_idx, best_sa_idx, best_wn_idx, best_wc_idx, best_wo_idx, best_wv_idx, best_wr_idx = 0, 0, 0, 0, 0, 0, 0, 0
     best_lf, best_lf_idx = 0.0, 0
     best_ex, best_ex_idx = 0.0, 0
-    print("#" * 20 + "  Star to Train  " + "#" * 20)
+    print("#" * 20 + "  Start to Train  " + "#" * 20)
     logger = get_train_logger(args)
     for i in range(args.epoch):
         print('Epoch %d' % (i + 1))
@@ -96,10 +96,13 @@ def train(args, use_small):
         # evaluate on the dev dataset
         dev_acc = epoch_acc(model, batch_size, dev_sql, dev_table, dev_db)
         # accuracy of each sub-task
-        # print ('Sel-Num: %.3f, Sel-Col: %.3f, Sel-Agg: %.3f, W-Num: %.3f, W-Col: %.3f, W-Op: %.3f, W-Val: %.3f, W-Rel: %.3f'%(
-        #     dev_acc[0][0], dev_acc[0][1], dev_acc[0][2], dev_acc[0][3], dev_acc[0][4], dev_acc[0][5], dev_acc[0][6], dev_acc[0][7]))
+        print('Sel-Num: %.3f, Sel-Col: %.3f, Sel-Agg: %.3f, W-Num: %.3f, W-Col: %.3f, W-Op: %.3f, W-Val: %.3f, '
+              'W-Rel: %.3f' % (
+                  dev_acc[0][0], dev_acc[0][1], dev_acc[0][2], dev_acc[0][3], dev_acc[0][4], dev_acc[0][5],
+                  dev_acc[0][6], dev_acc[0][7]))
         logger.info(
-            'Sel-Num: %.3f, Sel-Col: %.3f, Sel-Agg: %.3f, W-Num: %.3f, W-Col: %.3f, W-Op: %.3f, W-Val: %.3f, W-Rel: %.3f' % (
+            'Sel-Num: %.3f, Sel-Col: %.3f, Sel-Agg: %.3f, W-Num: %.3f, W-Col: %.3f, W-Op: %.3f, W-Val: %.3f, '
+            'W-Rel: %.3f' % (
                 dev_acc[0][0], dev_acc[0][1], dev_acc[0][2], dev_acc[0][3], dev_acc[0][4], dev_acc[0][5], dev_acc[0][6],
                 dev_acc[0][7]))
 
@@ -154,7 +157,7 @@ def train(args, use_small):
                 (best_sn_idx, best_sc_idx, best_sa_idx, best_wn_idx, best_wc_idx, best_wo_idx, best_wv_idx)))
 
 
-def test(args, use_small):
+def predict(args, use_small):
     n_word = args.emb_size
     gpu = args.gpu
     batch_size = args.bs
@@ -185,7 +188,7 @@ def main(args):
             use_small = False
             # load dataset
         train(args, use_small)
-        test(args, use_small)
+        predict(args, use_small)
 
     if args.mode == 'test':
         if args.toy:
@@ -193,7 +196,7 @@ def main(args):
         else:
             use_small = False
             # load dataset
-        test(args, use_small)
+        predict(args, use_small)
 
         # m.load_glove_embedding()
         # m.train()
