@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
-from sqlnet.model.modules.net_utils import run_lstm, col_name_encode
+from models.modules.net_utils import run_lstm, col_name_encode
 
 class WhereRelationPredictor(nn.Module):
     def __init__(self, N_word, N_h, N_depth, use_ca):

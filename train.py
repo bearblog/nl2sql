@@ -1,14 +1,30 @@
 import torch
 from sqlnet.utils import *
 from sqlnet.model.sqlnet import SQLNet
+import logging
+import os
 
 import argparse
+
+
+def get_train_logger():
+    # logger = logging.getLogger('train-{}'.format(self.__class__.__name__))
+    logger = logging.getLogger('train-{}'.format(__name__))
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s')
+    # file_handler = logging.FileHandler(os.path.join(self.args.dout, 'train.log'))
+    file_handler = logging.FileHandler('train.log')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    return logger
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--bs', type=int, default=16, help='Batch size')
     parser.add_argument('--epoch', type=int, default=100, help='Epoch number')
-    parser.add_argument('--gpu', action='store_true', help='Whether use gpu to train')
+    # parser.add_argument('--gpu', action='store_true', help='Whether use gpu to train')
+    parser.add_argument('--gpu', type=int, default=1, help='which GPU to use')
     parser.add_argument('--toy', action='store_true', help='If set, use small data for fast debugging')
     parser.add_argument('--ca', action='store_true', help='Whether use column attention')
     parser.add_argument('--train_emb', action='store_true', help='Train word embedding for SQLNet')
@@ -16,15 +32,15 @@ if __name__ == '__main__':
     parser.add_argument('--logdir', type=str, default='', help='Path of save experiment log')
     args = parser.parse_args()
 
-    n_word=300
+    n_word = 300
     if args.toy:
-        use_small=True
-        gpu=args.gpu
-        batch_size=16
+        use_small = True
+        gpu = args.gpu
+        batch_size = 16
     else:
-        use_small=False
-        gpu=args.gpu
-        batch_size=args.bs
+        use_small = False
+        gpu = args.gpu
+        batch_size = args.bs
     learning_rate = 1e-3
 
     # load dataset
@@ -35,8 +51,11 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0)
 
     if args.restore:
-        model_path= 'saved_model/best_model'
-        print ("Loading trained model from %s" % model_path)
+        # whole data
+        # model_path= 'saved_model/best_model'
+        # sample data
+        model_path = 'saved_model/best_model_small'
+        print("Loading trained model from %s" % model_path)
         model.load_state_dict(torch.load(model_path))
 
     # used to record best score of each sub-task
@@ -45,16 +64,20 @@ if __name__ == '__main__':
     best_lf, best_lf_idx = 0.0, 0
     best_ex, best_ex_idx = 0.0, 0
 
-    print ("#"*20+"  Star to Train  " + "#"*20)
+    print("#" * 20 + "  Star to Train  " + "#" * 20)
+    logger = get_train_logger()
     for i in range(args.epoch):
-        print ('Epoch %d'%(i+1))
+        print('Epoch %d' % (i + 1))
+        logger.info('starting epoch {}'.format(i))
         # train on the train dataset
         train_loss = epoch_train(model, optimizer, batch_size, train_sql, train_table)
         # evaluate on the dev dataset
         dev_acc = epoch_acc(model, batch_size, dev_sql, dev_table, dev_db)
         # accuracy of each sub-task
-        print ('Sel-Num: %.3f, Sel-Col: %.3f, Sel-Agg: %.3f, W-Num: %.3f, W-Col: %.3f, W-Op: %.3f, W-Val: %.3f, W-Rel: %.3f'%(
-            dev_acc[0][0], dev_acc[0][1], dev_acc[0][2], dev_acc[0][3], dev_acc[0][4], dev_acc[0][5], dev_acc[0][6], dev_acc[0][7]))
+        print(
+            'Sel-Num: %.3f, Sel-Col: %.3f, Sel-Agg: %.3f, W-Num: %.3f, W-Col: %.3f, W-Op: %.3f, W-Val: %.3f, W-Rel: %.3f' % (
+                dev_acc[0][0], dev_acc[0][1], dev_acc[0][2], dev_acc[0][3], dev_acc[0][4], dev_acc[0][5], dev_acc[0][6],
+                dev_acc[0][7]))
         # save the best model
         if dev_acc[1] > best_lf:
             best_lf = dev_acc[1]
@@ -68,33 +91,33 @@ if __name__ == '__main__':
         if True:
             if dev_acc[0][0] > best_sn:
                 best_sn = dev_acc[0][0]
-                best_sn_idx = i+1
+                best_sn_idx = i + 1
             if dev_acc[0][1] > best_sc:
                 best_sc = dev_acc[0][1]
-                best_sc_idx = i+1
+                best_sc_idx = i + 1
             if dev_acc[0][2] > best_sa:
                 best_sa = dev_acc[0][2]
-                best_sa_idx = i+1
+                best_sa_idx = i + 1
             if dev_acc[0][3] > best_wn:
                 best_wn = dev_acc[0][3]
-                best_wn_idx = i+1
+                best_wn_idx = i + 1
             if dev_acc[0][4] > best_wc:
                 best_wc = dev_acc[0][4]
-                best_wc_idx = i+1
+                best_wc_idx = i + 1
             if dev_acc[0][5] > best_wo:
                 best_wo = dev_acc[0][5]
-                best_wo_idx = i+1
+                best_wo_idx = i + 1
             if dev_acc[0][6] > best_wv:
                 best_wv = dev_acc[0][6]
-                best_wv_idx = i+1
+                best_wv_idx = i + 1
             if dev_acc[0][7] > best_wr:
                 best_wr = dev_acc[0][7]
-                best_wr_idx = i+1
-        print ('Train loss = %.3f' % train_loss)
-        print ('Dev Logic Form Accuracy: %.3f, Execution Accuracy: %.3f' % (dev_acc[1], dev_acc[2]))
-        print ('Best Logic Form: %.3f at epoch %d' % (best_lf, best_lf_idx))
-        print ('Best Execution: %.3f at epoch %d' % (best_ex, best_ex_idx))
-        if (i+1) % 10 == 0:
-            print ('Best val acc: %s\nOn epoch individually %s'%(
-                    (best_sn, best_sc, best_sa, best_wn, best_wc, best_wo, best_wv),
-                    (best_sn_idx, best_sc_idx, best_sa_idx, best_wn_idx, best_wc_idx, best_wo_idx, best_wv_idx)))
+                best_wr_idx = i + 1
+        print('Train loss = %.3f' % train_loss)
+        print('Dev Logic Form Accuracy: %.3f, Execution Accuracy: %.3f' % (dev_acc[1], dev_acc[2]))
+        print('Best Logic Form: %.3f at epoch %d' % (best_lf, best_lf_idx))
+        print('Best Execution: %.3f at epoch %d' % (best_ex, best_ex_idx))
+        if (i + 1) % 10 == 0:
+            print('Best val acc: %s\nOn epoch individually %s' % (
+                (best_sn, best_sc, best_sa, best_wn, best_wc, best_wo, best_wv),
+                (best_sn_idx, best_sc_idx, best_sa_idx, best_wn_idx, best_wc_idx, best_wo_idx, best_wv_idx)))
