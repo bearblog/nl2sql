@@ -1,4 +1,15 @@
-## version0621 
+## version0630 
+
+*  官方baseline,sqlnet_condition_column_cat_attention_300dimtanh
+Dev Logic Form Accuracy: 0.363, Execution Accuracy: 0.472   0.75113
+*   官方baseline,sqlnet_condition_column_cat_attention_100dimtanh
+Dev Logic Form Accuracy: 0.324, Execution Accuracy: 0.446   0.72133
+*   官方baseline,sqlnet_condition_column_cat_attention_300dim
+Dev Logic Form Accuracy: 0.361, Execution Accuracy: 0.484   0.75159
+*官方baseline,sqlnet_condition_column_cat_attention_100dim   
+Dev Logic Form Accuracy: 0.317, Execution Accuracy: 0.443   0.7099
+
+## version0621
 官方baseline , 尝试跑通 + 重构(bz=16)
 
 Dev Logic Form Accuracy: 0.312, Execution Accuracy: 0.439 onLine: 0.3694
