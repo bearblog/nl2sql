@@ -57,16 +57,16 @@ class TrainerNL2SQL:
         '''
         data = []
         with open (query_path,'r') as data_file:
-            lines = data_file.readlines()
-            if self.debug:
-                data = [json.load(line) for line in lines if len(data) <= 100]
-            else:
-                data = [json.load(line) for line in lines]
-            # for line_index , each_line in enumerate(data_file):
-            #     # debug 只读100行即可
-            #     if self.debug and line_index == 100: break
-            #     data.append(json.loads(each_line))
-            # print(len(data))
+            # lines = data_file.readlines()
+            # if self.debug:
+            #     data = [json.load(line) for line in lines if len(data) <= 100]
+            # else:
+            #     data = [json.load(line) for line in lines]
+            for line_index , each_line in enumerate(data_file):
+                # debug 只读100行即可
+                if self.debug and line_index == 100: break
+                data.append(json.loads(each_line))
+            print(len(data))
         return data
 
     def read_table(self,table_path):
@@ -75,21 +75,21 @@ class TrainerNL2SQL:
         '''
         table = {}
         with open(table_path,'r') as table_file:
-            lines = table_file.readlines()
-            tables = [json.load(each_table) for each_table in lines]
-            for each_table in tables:
-                table[each_table['id']] = each_table
-            # for line_index,each_line in enumerate(table_file):
-            #     each_table = json.loads(each_line)
+            # lines = table_file.readlines()
+            # tables = [json.load(each_table) for each_table in lines]
+            # for each_table in tables:
             #     table[each_table['id']] = each_table
+            for line_index,each_line in enumerate(table_file):
+                each_table = json.loads(each_line)
+                table[each_table['id']] = each_table
         return table
 
-    def create_mask(self,max_len,start_index,mask_len):
+    def create_mask(self,max_seq_len,start_index,mask_len):
         '''
         对给定的序列中返回他对应的 mask 序列
         只保留起始索引到mask 长度的序列为1 ，其余为0
         '''
-        mask = [0] * max_len
+        mask = [0] * max_seq_len
         for  index in range(start_index,start_index + mask_len):
             mask[index] = 1
         return mask
@@ -128,9 +128,105 @@ class TrainerNL2SQL:
         where_num = len(where_conds)
         # sel_dict -> {2: 5}
         sel_dict = {sel: agg for sel, agg in zip(sel_col, sel_agg)}
-
         duplicate_indices = QuestionMatcher.duplicate_relative_index(where_conds)
 
+        condition_dict = {}
+        for [where_col,where_op,where_value] , duplicate_index in zip(where_conds,duplicate_indices):
+            where_value = where_value.strip()
+            matched_value,matched_index  = QuestionMatcher.match_value(question,where_value,duplicate_index)
+            '''
+            question                二零一九年第四周大黄蜂和密室逃生这两部影片的票房总占比是多少呀
+            matched_value           大黄蜂
+            match_index             8
+            '''
+            if len(matched_value) >0:
+                if where_col in condition_dict:
+                    condition_dict[where_col].append([where_op, matched_value, matched_index])
+                else:
+                    condition_dict[where_col] = [[where_op, matched_value, matched_index]]
+            else:
+                # TODO  是否存在匹配不到值的情况，以及该如何处理
+                pass
+            # condition_dict : {0: [[2, '大黄蜂', 8]]}
+
+        question_ = bert_tokenizer.tokenize(question)
+        question_inputIDs = bert_tokenizer.convert_tokens_to_ids (['[CLS]']+question_+['[SEP]'])
+        firstColumn_CLS_startPosition = len(question_inputIDs)
+        question_inputMask = self.create_mask(max_seq_len = self.max_seq_len,start_index = 1,mask_len = len(question_))
+        '''
+        question_mask 就是对于输入的序列将对应的问题部分打上mask标记
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        '''
+        for index_header in range(len(header_list)):
+            # each_column : 影片名称
+            each_column = header_list[index_header]
+            value_dict = col_dict[each_column]
+            print(each_column)
+            '''
+            each_column = 影片名称
+            value_dict = {'家和万事惊', '密室逃生', '钢铁飞龙之奥特曼崛起', '海王', '“大”人物', '掠食城市', '死侍2：我爱我家', '大黄蜂', '一条狗的回家路', '白蛇：缘起'}
+            '''
+            each_column_ = bert_tokenizer.tokenize(each_column)
+            each_column_inputIDs = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + each_column_ + ["[SEP]"])
+            each_column_inputMask =self.create_mask(max_seq_len = self.max_seq_len,start_index = len(question_inputIDs)+1,mask_len  = len(each_column_))
+
+            connect_inputIDs = question_inputIDs + each_column_inputIDs
+
+            # question + column 后面再接的column对应的CLS的索引
+            nextColumn_CLS_startPosition = len(connect_inputIDs)
+            # 后面的column的 起始索引
+            nextColumn_startPosition = nextColumn_CLS_startPosition + 1
+            random.seed(index_header)
+
+            for index_nextColumn,nextColumn in enumerate(random.sample(header_list,len(header_list))):
+                nextColumn_ = bert_tokenizer.tokenize(nextColumn)
+                if index_nextColumn == 0:
+                    nextColumn_inputIDs = bert_tokenizer.convert_tokens_to_ids(['[CLS]']+nextColumn_+['[SEP]'])
+                else:
+                    nextColumn_inputIDs = bert_tokenizer.convert_tokens_to_ids(nextColumn_+['[SEP]'])
+                if len(connect_inputIDs) + len(nextColumn_inputIDs) <= self.max_seq_len:
+                    connect_inputIDs +=nextColumn_inputIDs
+                else:
+                    break
+
+            # nextColumn_inputMask_len 要mask掉的后面的列的长度
+            nextColumn_inputMask_len = len(connect_inputIDs) - nextColumn_startPosition - 1
+            nextColumn_inputMask = self.create_mask(max_seq_len= self.max_seq_len,start_index =nextColumn_startPosition,mask_len = nextColumn_inputMask_len)
+            '''
+            nextColumn_inputMask 
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            '''
+
+            value_CLS_startPosition = len(connect_inputIDs)
+            value_startPosition = len(connect_inputIDs) + 1
+            print(value_dict)
+            for value_index,each_value in enumerate(value_dict):
+                each_value_ = bert_tokenizer.tokenize(each_value)
+                if value_index == 0:
+                    value_inputIDs = bert_tokenizer.convert_tokens_to_ids(['[CLS]']+each_value_+['[SEP]'])
+                else:
+                    value_inputIDs = bert_tokenizer.convert_tokens_to_ids(each_value_+['[SEP]'])
+                if len(connect_inputIDs) + len(value_inputIDs) <= self.max_seq_len:
+                    connect_inputIDs += value_inputIDs
+                else:
+                    break
+
+            each_value_inputMask_len = len(connect_inputIDs) - value_startPosition -1 
+            each_value_inputMask = self.create_mask(max_seq_len = self.max_seq_len,start_index = value_startPosition,mask_len = each_value_inputMask_len)
+            
+            # 此时connect_inputIDs 相当于 CLS + query+ SEP +column1+ SEP+ nextcolumn1 +SEP + nextcolumn2+ SEP + value1 + SEP
+            # value 对应的是数据库里当前header 下面的全部的value
+            # attention_mask 是 对当前是connet_inputIDs 做mask
+            attention_mask = self.create_mask(max_seq_len = self.max_seq_len,start_index = 0,mask_len = len(connect_inputIDs))
+
+            connect_inputIDs = connect_inputIDs + [0]*(self.max_seq_len - len(connect_inputIDs))
+            print(1)
+
+
+            exit()
+                        
+
+            
 
 
 
