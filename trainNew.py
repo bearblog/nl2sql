@@ -57,21 +57,31 @@ class TrainerNL2SQL:
         '''
         data = []
         with open (query_path,'r') as data_file:
-            for line_index , each_line in enumerate(data_file):
-                # debug 只读100行即可
-                if self.debug and line_index == 100: break
-                data.append(json.loads(each_line)) 
-            print(len(data))
+            lines = data_file.readlines()
+            if self.debug:
+                data = [json.load(line) for line in lines if len(data) <= 100]
+            else:
+                data = [json.load(line) for line in lines]
+            # for line_index , each_line in enumerate(data_file):
+            #     # debug 只读100行即可
+            #     if self.debug and line_index == 100: break
+            #     data.append(json.loads(each_line))
+            # print(len(data))
         return data
+
     def read_table(self,table_path):
         '''
         table_path 是对应于问题的存有完整数据库的json文件
         '''
         table = {}
         with open(table_path,'r') as table_file:
-            for line_index,each_line in enumerate(table_file):
-                each_table = json.loads(each_line)
+            lines = table_file.readlines()
+            tables = [json.load(each_table) for each_table in lines]
+            for each_table in tables:
                 table[each_table['id']] = each_table
+            # for line_index,each_line in enumerate(table_file):
+            #     each_table = json.loads(each_line)
+            #     table[each_table['id']] = each_table
         return table
 
     def create_mask(self,max_len,start_index,mask_len):
