@@ -18,6 +18,75 @@ from sklearn.metrics import *
 
 from utils import QuestionMatcher
 
+'''
+class InputFeaturesLabels:
+    def __init__(
+        self,connect_inputIDs,sequence_labeling_inputMask,sel_column_mask,where_conlumn_inputMask,type_mask,attention_mask,firstColumn_CLS_startPosition,
+        question,table_id,header_mask,question_mask,nextColumn_CLS_startPosition,nextColumn_inputMask,value_mask,
+        where_relation_label,sel_agg_label,sequence_labeling_label,where_conlumn_number_label,op_label,type_label,sel_num_label,where_num_label):
+
+        # Features
+        self.connect_inputIDs = connect_inputIDs
+        self.sequence_labeling_inputMask = sequence_labeling_inputMask
+        self.sel_column_mask = sel_column_mask
+        self.where_conlumn_inputMask = where_conlumn_inputMask
+        self.type_mask = type_mask
+        self.attention_mask = attention_mask
+        self.firstColumn_CLS_startPosition = firstColumn_CLS_startPosition
+        self.question = question
+        self.table_id  = table_id
+        self.header_mask = header_mask
+        self.question_mask = question_mask
+        self.nextColumn_CLS_startPosition = nextColumn_CLS_startPosition
+        self.nextColumn_inputMask = nextColumn_inputMask
+        self.value_mask = value_mask
+
+        # Labels   
+        self.where_relation_label = where_relation_label
+        self.sel_agg_label = sel_agg_label
+        self.sequence_labeling_label = sequence_labeling_label
+        self.where_conlumn_number_label = where_conlumn_number_label
+        self.op_label = op_label
+        self.type_label = type_label
+        self.sel_num_label = sel_num_label
+        self.where_num_label = where_num_label
+'''
+
+class InputFeaturesLabels:
+    def __init__(self):
+
+        # Features
+        self.connect_inputIDs = []
+        self.sequence_labeling_inputMask = []
+        self.sel_column_mask = []
+        self.where_conlumn_inputMask = []
+        self.type_mask = []
+        self.attention_mask = []
+        self.firstColumn_CLS_startPosition = []
+        self.question = []
+        self.table_id  = []
+        self.header_mask = []
+        self.question_mask = []
+        self.nextColumn_CLS_startPosition = []
+        self.nextColumn_inputMask = []
+        self.value_mask = []
+        # Labels   
+        self.where_relation_label = []
+        self.sel_agg_label = []
+        self.sequence_labeling_label = []
+        self.where_conlumn_number_label = []
+        self.op_label = []
+        self.type_label = []
+        self.sel_num_label = []
+        self.where_num_label = []
+class InputFeaturesLabelsForTrain(InputFeaturesLabels):
+    def __init__(self):
+        self.each_trainData_index = []
+        self.sql_label = []
+        self.quesion_list  = []
+        self.table_id_list = []
+
+
 class TrainerNL2SQL:
     def __init__(self, data_dir, epochs=1, batch_size=64, base_batch_size=32, max_seq_len=120 , seed=1234, debug = False):
         self.device = torch.device('cuda')
@@ -57,11 +126,6 @@ class TrainerNL2SQL:
         '''
         data = []
         with open (query_path,'r') as data_file:
-            # lines = data_file.readlines()
-            # if self.debug:
-            #     data = [json.load(line) for line in lines if len(data) <= 100]
-            # else:
-            #     data = [json.load(line) for line in lines]
             for line_index , each_line in enumerate(data_file):
                 # debug 只读100行即可
                 if self.debug and line_index == 100: break
@@ -124,8 +188,8 @@ class TrainerNL2SQL:
         '同比增长（%）': {'-36.8', '-4.0', '-2.9', '5.7', '8.5', '16.3', '-4.3'}}
         '''
 
-        sel_num = len(sel_col)
-        where_num = len(where_conds)
+        sel_num_label = len(sel_col)
+        where_num_label = len(where_conds)
         # sel_dict -> {2: 5}
         sel_dict = {sel: agg for sel, agg in zip(sel_col, sel_agg)}
         duplicate_indices = QuestionMatcher.duplicate_relative_index(where_conds)
@@ -149,6 +213,8 @@ class TrainerNL2SQL:
                 pass
             # condition_dict : {0: [[2, '大黄蜂', 8]]}
 
+        features_labels = InputFeaturesLabels()
+        
         question_ = bert_tokenizer.tokenize(question)
         question_inputIDs = bert_tokenizer.convert_tokens_to_ids (['[CLS]']+question_+['[SEP]'])
         firstColumn_CLS_startPosition = len(question_inputIDs)
@@ -211,36 +277,131 @@ class TrainerNL2SQL:
                 else:
                     break
 
-            each_value_inputMask_len = len(connect_inputIDs) - value_startPosition -1 
-            each_value_inputMask = self.create_mask(max_seq_len = self.max_seq_len,start_index = value_startPosition,mask_len = each_value_inputMask_len)
+            value_inputMask_len = len(connect_inputIDs) - value_startPosition -1 
+            value_inputMask = self.create_mask(max_seq_len = self.max_seq_len,start_index = value_startPosition,mask_len = value_inputMask_len)
             
             # 此时connect_inputIDs 相当于 CLS + query+ SEP +column1+ SEP+ nextcolumn1 +SEP + nextcolumn2+ SEP + value1 + SEP
             # value 对应的是数据库里当前header 下面的全部的value
             # attention_mask 是 对当前是connet_inputIDs 做mask
             attention_mask = self.create_mask(max_seq_len = self.max_seq_len,start_index = 0,mask_len = len(connect_inputIDs))
-
+            # padding
             connect_inputIDs = connect_inputIDs + [0]*(self.max_seq_len - len(connect_inputIDs))
-            print(1)
 
+            # 初始化序列标注的 input_id
+            sequence_labeling_label = [0]*len(connect_inputIDs) 
 
-            exit()
-                        
+            sel_column_mask, where_conlumn_inputMask, type_mask = 0, 0, 1
+            # TODO op_label 一直都是2是不是有问题？
+            where_relation_label, sel_agg_label, where_conlumn_number_label, op_label = 0, 0, 0, 2
+            '''
+            condition_dict 
+            {0: [[2, '大黄蜂', 8], [2, '密室逃生', 12]]}
+            '''
+            if index_header in condition_dict:
+                # 对于一个header 多个value的情况，必须是value的数量对应上才进入训练，否则continue
+                # TODO 这地方是不是可以优化一下
+                if list(map(lambda x:x[0],where_conds)).count(index_header) != len(condition_dict[index_header]): continue
+                conlumn_condition_list = condition_dict[index_header]
+
+                for [conlumn_condition_op,conlumn_condition_value,conlumn_condition_index] in conlumn_condition_list:
+
+                    # 序列标注将问题question中value对应的部分标注成1
+                    sequence_labeling_label[conlumn_condition_index+1:conlumn_condition_index+1+len(conlumn_condition_value)] = [1] * len(conlumn_condition_value)
+                    # TODO 序列标注inputID 是问题中的value ,inpustMask是整个问题？ 
+                sequence_labeling_inputMask = [0] + [1]*len(question) +[0]*(self.max_seq_len-len(question)-1)
+                where_conlumn_inputMask = 1
+                where_relation_label = where_relation
+                where_conlumn_number_label = min(len(conlumn_condition_list),3) # 一个列对应4个value的只有一个样本，把他剔除掉
+                type_label = 1
+
+            elif index_header in sel_dict:
+                sequence_labeling_inputMask = [0]*self.max_seq_len
+                sel_column_mask = 1
+                sel_agg_label = sel_dict[index_header]
+                type_label = 0
+            else:
+                sequence_labeling_inputMask = [0]*self.max_seq_len
+                type_label = 2
+            '''
+            这里相当于挨个遍历header_list中的列然后依次给对应的变量打上标签
+            如果当前的列在condition_dict 也就是在conds 中，那么给对应的问题打上序列标注的标签
+            type_label 是用来空值当前的列对应的是 sel的列还是 where 里的列，如果标记为2 那么就表示不选择当前的这个列
+            '''
 
             
+            # features
+            features_labels.connect_inputIDs.append(connect_inputIDs)
+            features_labels.sequence_labeling_inputMask.append(sequence_labeling_inputMask)
+            features_labels.sel_column_mask.append(sel_column_mask)
+            features_labels.where_conlumn_inputMask.append(where_conlumn_inputMask)
+            features_labels.type_mask.append(type_mask)
+            features_labels.attention_mask.append(attention_mask)
+            features_labels.firstColumn_CLS_startPosition.append(firstColumn_CLS_startPosition)
+            features_labels.question.append(question)
+            features_labels.table_id.append(tableID)
+            features_labels.header_mask.append(each_column_inputMask)
+            features_labels.question_mask.append(question_inputMask)
+            features_labels.nextColumn_CLS_startPosition.append(nextColumn_CLS_startPosition)
+            features_labels.nextColumn_inputMask.append(nextColumn_inputMask)
+            features_labels.value_mask.append(value_inputMask)
+            # labels
+            features_labels.where_relation_label.append(where_relation_label)
+            features_labels.sel_agg_label.append(sel_agg_label)
+            features_labels.sequence_labeling_label.append(sequence_labeling_label)
+            # 剔除掉 一个列对应多个value 但是标注不一致 以后剩下的
+            features_labels.where_conlumn_number_label.append(where_conlumn_number_label)
+            features_labels.op_label.append(op_label)
+            features_labels.type_label.append(type_label)
+            features_labels.sel_num_label.append(sel_num_label)
+            # 原始的where_condition 中 num 的数量
+            features_labels.where_num_label.append(where_num_label)
+
+        return features_labels
 
 
-
-
-
-        return 1
     def data_iterator(self):
         train_data_list = self.read_query(self.train_data_path)
         train_table_dict = self.read_table(self.train_table_path)
         valid_data_list = self.read_query(self.valid_data_path)
         valid_table_dict = self.read_table(self.valid_table_path)
         bert_tokenizer = BertTokenizer.from_pretrained(self.bert_model_path, cache_dir=None, do_lower_case=True)
+
+        train_features_labels = InputFeaturesLabelsForTrain()
+
         for each_trainData in train_data_list:
-            processed_result = self.data_process(each_trainData, train_table_dict, bert_tokenizer)
+            features_labels = self.data_process(each_trainData, train_table_dict, bert_tokenizer)
+            train_features_labels.connect_inputIDs.extend(features_labels.connect_inputIDs)
+            train_features_labels.sequence_labeling_inputMask.extend(features_labels.sequence_labeling_inputMask)
+            train_features_labels.sel_column_mask.extend(features_labels.sel_column_mask)
+            train_features_labels.where_conlumn_inputMask.extend(features_labels.where_conlumn_inputMask)
+            train_features_labels.type_mask.extend(features_labels.type_mask)
+            train_features_labels.attention_mask.extend(features_labels.attention_mask)
+            train_features_labels.firstColumn_CLS_startPosition.extend(features_labels.firstColumn_CLS_startPosition)
+            train_features_labels
+
+
+            train_features_labels
+
+
+            train_features_labels
+
+
+            train_features_labels
+
+
+
+            train_features_labels
+
+            train_features_labels
+
+            train_features_labels
+
+            train_features_labels
+
+
+            
+
+
 
 
 
@@ -248,7 +409,7 @@ class TrainerNL2SQL:
 
 if __name__ == "__main__":
     data_dir = "./data"
-    trainer = TrainerNL2SQL(data_dir, epochs=15, batch_size=16, base_batch_size=16, max_seq_len=128, debug = True)
+    trainer = TrainerNL2SQL(data_dir, epochs=15, batch_size=16, base_batch_size=16, max_seq_len=128, debug = False)
     time1 = time.time()
     trainer.data_iterator()
     print("训练时间: %d min" % int((time.time() - time1) / 60))
