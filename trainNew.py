@@ -16,41 +16,8 @@ from pytorch_pretrained_bert.modeling import BertPreTrainedModel
 import json
 from sklearn.metrics import *
 
-from utils import QuestionMatcher
+from utils import QuestionMatcher,MatrixAttentionLayer,ColAttentionLayer,ValueOptimizer,BertNeuralNet
 
-'''
-class InputFeaturesLabels:
-    def __init__(
-        self,connect_inputIDs,sequence_labeling_inputMask,sel_column_mask,where_conlumn_inputMask,type_mask,attention_mask,firstColumn_CLS_startPosition,
-        question,table_id,header_mask,question_mask,nextColumn_CLS_startPosition,nextColumn_inputMask,value_mask,
-        where_relation_label,sel_agg_label,sequence_labeling_label,where_conlumn_number_label,op_label,type_label,sel_num_label,where_num_label):
-
-        # Features
-        self.connect_inputIDs = connect_inputIDs
-        self.sequence_labeling_inputMask = sequence_labeling_inputMask
-        self.sel_column_mask = sel_column_mask
-        self.where_conlumn_inputMask = where_conlumn_inputMask
-        self.type_mask = type_mask
-        self.attention_mask = attention_mask
-        self.firstColumn_CLS_startPosition = firstColumn_CLS_startPosition
-        self.question = question
-        self.table_id  = table_id
-        self.header_mask = header_mask
-        self.question_mask = question_mask
-        self.nextColumn_CLS_startPosition = nextColumn_CLS_startPosition
-        self.nextColumn_inputMask = nextColumn_inputMask
-        self.value_mask = value_mask
-
-        # Labels   
-        self.where_relation_label = where_relation_label
-        self.sel_agg_label = sel_agg_label
-        self.sequence_labeling_label = sequence_labeling_label
-        self.where_conlumn_number_label = where_conlumn_number_label
-        self.op_label = op_label
-        self.type_label = type_label
-        self.sel_num_label = sel_num_label
-        self.where_num_label = where_num_label
-'''
 
 class InputFeaturesLabels:
     def __init__(self):
@@ -81,13 +48,14 @@ class InputFeaturesLabels:
         self.where_num_label = []
 class InputFeaturesLabelsForTrain(InputFeaturesLabels):
     def __init__(self):
+        super(InputFeaturesLabelsForTrain, self).__init__()
         self.each_trainData_index = []
         self.sql_label = []
         self.quesion_list  = []
         self.table_id_list = []
 
 
-class TrainerNL2SQL:
+class NL2SQL:
     def __init__(self, data_dir, epochs=1, batch_size=64, base_batch_size=32, max_seq_len=120 , seed=1234, debug = False):
         self.device = torch.device('cuda')
         self.data_dir = data_dir
@@ -364,9 +332,15 @@ class TrainerNL2SQL:
         train_table_dict = self.read_table(self.train_table_path)
         valid_data_list = self.read_query(self.valid_data_path)
         valid_table_dict = self.read_table(self.valid_table_path)
+        test_data_list = self.read_query(self.test_data_path)
+        test_table_dict = self.read_table(self.test_table_path)
+
         bert_tokenizer = BertTokenizer.from_pretrained(self.bert_model_path, cache_dir=None, do_lower_case=True)
 
         train_features_labels = InputFeaturesLabelsForTrain()
+        valid_features_labels = InputFeaturesLabelsForTrain()
+        test_features_labels = InputFeaturesLabelsForTrain()
+
 
         for each_trainData in train_data_list:
             features_labels = self.data_process(each_trainData, train_table_dict, bert_tokenizer)
@@ -377,30 +351,152 @@ class TrainerNL2SQL:
             train_features_labels.type_mask.extend(features_labels.type_mask)
             train_features_labels.attention_mask.extend(features_labels.attention_mask)
             train_features_labels.firstColumn_CLS_startPosition.extend(features_labels.firstColumn_CLS_startPosition)
-            train_features_labels
+            train_features_labels.question.extend(features_labels.question)
+            train_features_labels.table_id.extend(features_labels.table_id)
+            train_features_labels.header_mask.extend(features_labels.header_mask)
+            train_features_labels.question_mask.extend(features_labels.question_mask)
+            train_features_labels.nextColumn_CLS_startPosition.extend(features_labels.nextColumn_CLS_startPosition)
+            train_features_labels.nextColumn_inputMask.extend(features_labels.nextColumn_inputMask)
+            train_features_labels.value_mask.extend(features_labels.value_mask)
 
+            train_features_labels.where_relation_label.extend(features_labels.where_relation_label)
+            train_features_labels.sel_agg_label.extend(features_labels.sel_agg_label)
+            train_features_labels.sequence_labeling_label.extend(features_labels.sequence_labeling_label)
+            train_features_labels.where_conlumn_number_label.extend(features_labels.where_conlumn_number_label)
+            train_features_labels.op_label.extend(features_labels.op_label)
+            train_features_labels.type_label.extend(features_labels.type_label)
+            train_features_labels.sel_num_label.extend(features_labels.sel_num_label)
+            train_features_labels.where_num_label.extend(features_labels.where_num_label)
 
-            train_features_labels
-
-
-            train_features_labels
-
-
-            train_features_labels
-
-
-
-            train_features_labels
-
-            train_features_labels
-
-            train_features_labels
-
-            train_features_labels
-
+            train_features_labels.each_trainData_index.append(len(train_features_labels.connect_inputIDs))
+            train_features_labels.sql_label.append(each_trainData['sql'])
+            train_features_labels.quesion_list.append(each_trainData['question'])
+            train_features_labels.table_id_list.append(each_trainData['table_id'])
 
             
+        for each_validData in valid_data_list:
+            features_labels = self.data_process(each_validData, valid_table_dict, bert_tokenizer)
+            valid_features_labels.connect_inputIDs.extend(features_labels.connect_inputIDs)
+            valid_features_labels.sequence_labeling_inputMask.extend(features_labels.sequence_labeling_inputMask)
+            valid_features_labels.sel_column_mask.extend(features_labels.sel_column_mask)
+            valid_features_labels.where_conlumn_inputMask.extend(features_labels.where_conlumn_inputMask)
+            valid_features_labels.type_mask.extend(features_labels.type_mask)
+            valid_features_labels.attention_mask.extend(features_labels.attention_mask)
+            valid_features_labels.firstColumn_CLS_startPosition.extend(features_labels.firstColumn_CLS_startPosition)
+            valid_features_labels.question.extend(features_labels.question)
+            valid_features_labels.table_id.extend(features_labels.table_id)
+            valid_features_labels.header_mask.extend(features_labels.header_mask)
+            valid_features_labels.question_mask.extend(features_labels.question_mask)
+            valid_features_labels.nextColumn_CLS_startPosition.extend(features_labels.nextColumn_CLS_startPosition)
+            valid_features_labels.nextColumn_inputMask.extend(features_labels.nextColumn_inputMask)
+            valid_features_labels.value_mask.extend(features_labels.value_mask)
 
+            valid_features_labels.where_relation_label.extend(features_labels.where_relation_label)
+            valid_features_labels.sel_agg_label.extend(features_labels.sel_agg_label)
+            valid_features_labels.sequence_labeling_label.extend(features_labels.sequence_labeling_label)
+            valid_features_labels.where_conlumn_number_label.extend(features_labels.where_conlumn_number_label)
+            valid_features_labels.op_label.extend(features_labels.op_label)
+            valid_features_labels.type_label.extend(features_labels.type_label)
+            valid_features_labels.sel_num_label.extend(features_labels.sel_num_label)
+            valid_features_labels.where_num_label.extend(features_labels.where_num_label)
+
+            valid_features_labels.each_trainData_index.append(len(train_features_labels.connect_inputIDs))
+            valid_features_labels.sql_label.append(each_trainData['sql'])
+            valid_features_labels.quesion_list.append(each_trainData['question'])
+            valid_features_labels.table_id_list.append(each_trainData['table_id'])
+
+        '''
+        for each_testData in test_data_list:
+            features_labels = self.data_process(each_testData, test_table_dict, bert_tokenizer)
+            test_features_labels.connect_inputIDs.extend(features_labels.connect_inputIDs)
+            test_features_labels.type_mask.extend(features_labels.type_mask)
+            test_features_labels.attention_mask.extend(features_labels.attention_mask)
+            test_features_labels.firstColumn_CLS_startPosition.extend(features_labels.firstColumn_CLS_startPosition)
+            test_features_labels.header_mask.extend(features_labels.header_mask)
+            test_features_labels.question_mask.extend(features_labels.question_mask)
+            test_features_labels.nextColumn_CLS_startPosition.extend(features_labels.nextColumn_CLS_startPosition)
+            test_features_labels.nextColumn_inputMask.extend(features_labels.nextColumn_inputMask)
+            test_features_labels.value_mask.extend(features_labels.value_mask)
+
+            test_features_labels.each_trainData_index.append(len(train_features_labels.connect_inputIDs))
+            test_features_labels.quesion_list.append(each_trainData['question'])
+            test_features_labels.table_id_list.append(each_trainData['table_id'])
+        '''
+
+        train_data = data.TensorDataset(
+            torch.tensor(train_features_labels.connect_inputIDs, dtype=torch.long),
+            torch.tensor(train_features_labels.sequence_labeling_inputMask, dtype=torch.long),
+            torch.tensor(train_features_labels.sel_column_mask, dtype=torch.long),
+            torch.tensor(train_features_labels.where_conlumn_inputMask, dtype=torch.long),
+            torch.tensor(train_features_labels.type_mask, dtype=torch.long),
+            torch.tensor(train_features_labels.attention_mask, dtype=torch.long),
+            torch.tensor(train_features_labels.where_relation_label, dtype=torch.long),
+            torch.tensor(train_features_labels.sel_agg_label, dtype=torch.long),
+            torch.tensor(train_features_labels.sequence_labeling_label, dtype=torch.long),
+            torch.tensor(train_features_labels.where_conlumn_number_label, dtype=torch.long),
+            torch.tensor(train_features_labels.type_label, dtype=torch.long),
+            torch.tensor(train_features_labels.firstColumn_CLS_startPosition, dtype=torch.long),
+            torch.tensor(train_features_labels.header_mask, dtype=torch.long),
+            torch.tensor(train_features_labels.question_mask, dtype=torch.long),
+            torch.tensor(train_features_labels.nextColumn_CLS_startPosition, dtype=torch.long),
+            torch.tensor(train_features_labels.nextColumn_inputMask, dtype=torch.long),
+            torch.tensor(train_features_labels.sel_num_label, dtype=torch.long),
+            torch.tensor(train_features_labels.where_num_label, dtype=torch.long),
+            torch.tensor(train_features_labels.op_label, dtype=torch.long),
+            torch.tensor(train_features_labels.value_mask, dtype=torch.long)
+            )
+
+        valid_data = data.TensorDataset(
+            torch.tensor(valid_features_labels.connect_inputIDs, dtype=torch.long),
+            torch.tensor(valid_features_labels.sequence_labeling_inputMask, dtype=torch.long),
+            torch.tensor(valid_features_labels.sel_column_mask, dtype=torch.long),
+            torch.tensor(valid_features_labels.where_conlumn_inputMask, dtype=torch.long),
+            torch.tensor(valid_features_labels.type_mask, dtype=torch.long),
+            torch.tensor(valid_features_labels.attention_mask, dtype=torch.long),
+            torch.tensor(valid_features_labels.where_relation_label, dtype=torch.long),
+            torch.tensor(valid_features_labels.sel_agg_label, dtype=torch.long),
+            torch.tensor(valid_features_labels.sequence_labeling_label, dtype=torch.long),
+            torch.tensor(valid_features_labels.where_conlumn_number_label, dtype=torch.long),
+            torch.tensor(valid_features_labels.type_label, dtype=torch.long),
+            torch.tensor(valid_features_labels.firstColumn_CLS_startPosition, dtype=torch.long),
+            torch.tensor(valid_features_labels.header_mask, dtype=torch.long),
+            torch.tensor(valid_features_labels.question_mask, dtype=torch.long),
+            torch.tensor(valid_features_labels.nextColumn_CLS_startPosition, dtype=torch.long),
+            torch.tensor(valid_features_labels.nextColumn_inputMask, dtype=torch.long),
+            torch.tensor(valid_features_labels.sel_num_label, dtype=torch.long),
+            torch.tensor(valid_features_labels.where_num_label, dtype=torch.long),
+            torch.tensor(valid_features_labels.op_label, dtype=torch.long),
+            torch.tensor(valid_features_labels.value_mask, dtype=torch.long)
+            )
+
+        '''
+        test_data = data.TensorDataset(
+            torch.tensor(test_features_labels.connect_inputIDs, dtype=torch.long),
+            torch.tensor(test_features_labels.attention_mask, dtype=torch.long),
+            torch.tensor(test_features_labels.firstColumn_CLS_startPosition, dtype=torch.long),
+            torch.tensor(test_features_labels.header_mask, dtype=torch.long),
+            torch.tensor(test_features_labels.question_mask, dtype=torch.long),
+            torch.tensor(test_features_labels.nextColumn_CLS_startPosition, dtype=torch.long),
+            torch.tensor(test_features_labels.nextColumn_inputMask, dtype=torch.long),
+            torch.tensor(test_features_labels.value_mask, dtype=torch.long),
+            torch.tensor(test_features_labels.type_mask, dtype=torch.long),
+                                          )
+        '''
+        # 迭代器迭代出每一个batch的数据
+        train_iterator = torch.utils.data.DataLoader(train_data, batch_size=self.base_batch_size, shuffle=True)
+        valid_iterator = torch.utils.data.DataLoader(valid_data, batch_size=self.base_batch_size, shuffle=False)
+        # test_iterator = torch.utils.data.DataLoader(test_data, batch_size=self.base_batch_size, shuffle=False)
+
+        return train_iterator, valid_iterator,valid_features_labels
+        # return train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_loader, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict
+
+            
+    def train(self,model_name = None):
+        pass
+    def test(self,mode_valid = True,model_predict = False,ensemble = False):
+        pass
+    def main(self):
+        self.train()
 
 
 
@@ -409,7 +505,8 @@ class TrainerNL2SQL:
 
 if __name__ == "__main__":
     data_dir = "./data"
-    trainer = TrainerNL2SQL(data_dir, epochs=15, batch_size=16, base_batch_size=16, max_seq_len=128, debug = False)
+    nl2sql = NL2SQL(data_dir, epochs=15, batch_size=16, base_batch_size=16, max_seq_len=128, debug = False)
     time1 = time.time()
-    trainer.data_iterator()
+    # nl2sql.data_iterator()
+    nl2sql.main()
     print("训练时间: %d min" % int((time.time() - time1) / 60))
