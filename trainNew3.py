@@ -84,7 +84,6 @@ class MatrixAttentionLayer(nn.Module):
         cat_output = torch.mul(cat_output, cat_mask)
         return cat_output, attention_output
 
-
 class ColAttentionLayer(nn.Module):
     def __init__(self, input_size, hidden_size):
         super(ColAttentionLayer, self).__init__()
@@ -111,7 +110,6 @@ class ColAttentionLayer(nn.Module):
         attention_output = torch.sum(attention_output_unsqueeze, 1)
         cat_output = torch.cat([col_output, attention_output], 1)
         return cat_output, attention_output
-
 
 class ValueOptimizer:
     @staticmethod
@@ -310,7 +308,6 @@ class ValueOptimizer:
         candidate_set.add(value.replace("清华", "清华大学"))
         candidate_set.add(value.replace("广大", "广州大学"))
         return candidate_set
-
 
 class QuestionMatcher:
     @staticmethod
@@ -739,7 +736,6 @@ class QuestionMatcher:
             pass
         return matched_value, matched_index
 
-
 class BertNeuralNet(BertPreTrainedModel):
     def __init__(self, config):
         super(BertNeuralNet, self).__init__(config)
@@ -877,7 +873,6 @@ class BertNeuralNet(BertPreTrainedModel):
 
             return tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits
 
-
 class Trainer:
     def __init__(self, data_dir, epochs=1, batch_size=64, base_batch_size=32, max_len=120, seed=1234, debug=False):
         self.device = torch.device('cuda')
@@ -1002,28 +997,29 @@ class Trainer:
                 pass
             # condition_dict : {0: [[2, '大黄蜂', 8]]}
 
-        conc_tokens = []
-        tag_masks = []
-        sel_masks = []
-        con_masks = []
-        type_masks = []
-        attention_masks = []
-        header_masks = []
-        question_masks = []
-        value_masks = []
-        connection_labels = []
-        agg_labels = []
-        tag_labels = []
-        con_num_labels = []
-        type_labels = []
-        cls_index_list = []
-        header_question_list = []
-        header_table_id_list = []
-        subheader_cls_list = []
-        subheader_masks = []
-        sel_num_labels = []
-        where_num_labels = []
-        op_labels = []
+        SampleFeaturesLables = InputFeaturesLabels()
+        # conc_tokens = []
+        # tag_masks = []
+        # sel_masks = []
+        # con_masks = []
+        # type_masks = []
+        # attention_masks = []
+        # header_masks = []
+        # question_masks = []
+        # value_masks = []
+        # connection_labels = []
+        # agg_labels = []
+        # tag_labels = []
+        # con_num_labels = []
+        # type_labels = []
+        # cls_index_list = []
+        # header_question_list = []
+        # header_table_id_list = []
+        # subheader_cls_list = []
+        # subheader_masks = []
+        # sel_num_labels = []
+        # where_num_labels = []
+        # op_labels = []
 
         question_ = bert_tokenizer.tokenize(question)
         question_UNK_position = []
@@ -1150,30 +1146,31 @@ class Trainer:
             如果当前的列在condition_dict 也就是在conds 中，那么给对应的问题打上序列标注的标签
             type_label 是用来空值当前的列对应的是 sel的列还是 where 里的列，如果标记为2 那么就表示不选择当前的这个列
             '''
-            conc_tokens.append(connect_inputIDs)
-            tag_masks.append(sequence_labeling_inputMask)
-            sel_masks.append(select_column_mask)
-            con_masks.append(where_conlumn_inputMask)
-            type_masks.append(type_mask)
-            attention_masks.append(attention_mask)
-            connection_labels.append(where_relation_label)
-            agg_labels.append(select_agg_label)
-            tag_labels.append(sequence_labeling_label)
-            con_num_labels.append(where_conlumn_number_label)
-            type_labels.append(type_label)
-            cls_index_list.append(firstColumn_CLS_startPosition)
-            header_question_list.append(question)
-            header_table_id_list.append(tableID)
-            header_masks.append(each_column_inputMask)
-            question_masks.append(question_inputMask)
-            subheader_cls_list.append(nextColumn_CLS_startPosition)
-            subheader_masks.append(nextColumn_inputMask)
-            sel_num_labels.append(select_number_label)
-            where_num_labels.append(where_number_label)
-            op_labels.append(op_label)
-            value_masks.append(value_inputMask)
+            SampleFeaturesLables.conc_tokens.append(connect_inputIDs)
+            SampleFeaturesLables.tag_masks.append(sequence_labeling_inputMask)
+            SampleFeaturesLables.sel_masks.append(select_column_mask)
+            SampleFeaturesLables.con_masks.append(where_conlumn_inputMask)
+            SampleFeaturesLables.type_masks.append(type_mask)
+            SampleFeaturesLables.attention_masks.append(attention_mask)
+            SampleFeaturesLables.connection_labels.append(where_relation_label)
+            SampleFeaturesLables.agg_labels.append(select_agg_label)
+            SampleFeaturesLables.tag_labels.append(sequence_labeling_label)
+            SampleFeaturesLables.con_num_labels.append(where_conlumn_number_label)
+            SampleFeaturesLables.type_labels.append(type_label)
+            SampleFeaturesLables.cls_index_list.append(firstColumn_CLS_startPosition)
+            SampleFeaturesLables.header_question_list.append(question)
+            SampleFeaturesLables.header_table_id_list.append(tableID)
+            SampleFeaturesLables.header_masks.append(each_column_inputMask)
+            SampleFeaturesLables.question_masks.append(question_inputMask)
+            SampleFeaturesLables.subheader_cls_list.append(nextColumn_CLS_startPosition)
+            SampleFeaturesLables.subheader_masks.append(nextColumn_inputMask)
+            SampleFeaturesLables.sel_num_labels.append(select_number_label)
+            SampleFeaturesLables.where_num_labels.append(where_number_label)
+            SampleFeaturesLables.op_labels.append(op_label)
+            SampleFeaturesLables.value_masks.append(value_inputMask)
 
-        return tag_masks, sel_masks, con_masks, type_masks, attention_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels, cls_index_list, conc_tokens, header_question_list, header_table_id_list, header_masks, question_masks, subheader_cls_list, subheader_masks, sel_num_labels, where_num_labels, op_labels, value_masks, question_
+        # return tag_masks, sel_masks, con_masks, type_masks, attention_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels, cls_index_list, conc_tokens, header_question_list, header_table_id_list, header_masks, question_masks, subheader_cls_list, subheader_masks, sel_num_labels, where_num_labels, op_labels, value_masks, question_
+        return SampleFeaturesLables, question_
 
     def process_sample_test(self, sample, table_dict, bert_tokenizer):
         question = sample["question"]
@@ -1189,14 +1186,15 @@ class Trainer:
                 header_name = table_header_list[col]
                 col_dict[header_name].add(str(value))
 
-        conc_tokens = []
-        attention_masks = []
-        header_masks = []
-        question_masks = []
-        value_masks = []
-        cls_index_list = []
-        subheader_cls_list = []
-        subheader_masks = []
+        # conc_tokens = []
+        # attention_masks = []
+        # header_masks = []
+        # question_masks = []
+        # value_masks = []
+        # cls_index_list = []
+        # subheader_cls_list = []
+        # subheader_masks = []
+        SampleFeaturesLabels = InputFeaturesLabels()
 
         question_tokens = bert_tokenizer.tokenize(question)
         question_ids = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + question_tokens + ["[SEP]"])
@@ -1248,17 +1246,18 @@ class Trainer:
             attention_mask = self.create_mask(max_len=self.max_len, start_index=0, mask_len=len(conc_ids))
             conc_ids = conc_ids + [0] * (self.max_len - len(conc_ids))
 
-            conc_tokens.append(conc_ids)
-            attention_masks.append(attention_mask)
-            cls_index_list.append(header_cls_index)
-            header_masks.append(header_mask)
-            question_masks.append(question_mask)
-            subheader_cls_list.append(subheader_cls_index)
-            subheader_masks.append(subheader_mask)
-            value_masks.append(value_mask)
-        type_masks = [1] * len(conc_tokens)
+            SampleFeaturesLabels.conc_tokens.append(conc_ids)
+            SampleFeaturesLabels.attention_masks.append(attention_mask)
+            SampleFeaturesLabels.cls_index_list.append(header_cls_index)
+            SampleFeaturesLabels.header_masks.append(header_mask)
+            SampleFeaturesLabels.question_masks.append(question_mask)
+            SampleFeaturesLabels.subheader_cls_list.append(subheader_cls_index)
+            SampleFeaturesLabels.subheader_masks.append(subheader_mask)
+            SampleFeaturesLabels.value_masks.append(value_mask)
+        SampleFeaturesLabels.type_masks = [1] * len(SampleFeaturesLabels.conc_tokens)
 
-        return attention_masks, cls_index_list, conc_tokens, header_masks, question_masks, subheader_cls_list, subheader_masks, value_masks, type_masks, question_tokens
+        #return attention_masks, cls_index_list, conc_tokens, header_masks, question_masks, subheader_cls_list, subheader_masks, value_masks, type_masks, question_tokens
+        return SampleFeaturesLabels, question_tokens
 
     def data_iterator(self, mode = "train"):
         """
@@ -1285,60 +1284,60 @@ class Trainer:
             # TestFeaturesLabels = InputFeaturesLabels()
 
             for sample in train_data_list:
-                processed_result = self.process_sample(sample, train_table_dict, bert_tokenizer)
-                TrainFeaturesLabels.tag_masks.extend(processed_result[0])
-                TrainFeaturesLabels.sel_masks.extend(processed_result[1])
-                TrainFeaturesLabels.con_masks.extend(processed_result[2])
-                TrainFeaturesLabels.type_masks.extend(processed_result[3])
-                TrainFeaturesLabels.attention_masks.extend(processed_result[4])
-                TrainFeaturesLabels.connection_labels.extend(processed_result[5])
-                TrainFeaturesLabels.agg_labels.extend(processed_result[6])
-                TrainFeaturesLabels.tag_labels.extend(processed_result[7])
-                TrainFeaturesLabels.con_num_labels.extend(processed_result[8])
-                TrainFeaturesLabels.type_labels.extend(processed_result[9])
-                TrainFeaturesLabels.cls_index_list.extend(processed_result[10])
-                TrainFeaturesLabels.conc_tokens.extend(processed_result[11])
-                TrainFeaturesLabels.header_question_list.extend(processed_result[12])
-                TrainFeaturesLabels.header_table_id_list.extend(processed_result[13])
-                TrainFeaturesLabels.header_masks.extend(processed_result[14])
-                TrainFeaturesLabels.question_masks.extend(processed_result[15])
-                TrainFeaturesLabels.subheader_cls_list.extend(processed_result[16])
-                TrainFeaturesLabels.subheader_masks.extend(processed_result[17])
-                TrainFeaturesLabels.sel_num_labels.extend(processed_result[18])
-                TrainFeaturesLabels.where_num_labels.extend(processed_result[19])
-                TrainFeaturesLabels.op_labels.extend(processed_result[20])
-                TrainFeaturesLabels.value_masks.extend(processed_result[21])
-                TrainFeaturesLabels.question_token_list.append(processed_result[22])
+                SampleFeaturesforTrain, train_question= self.process_sample(sample, train_table_dict, bert_tokenizer)
+                TrainFeaturesLabels.tag_masks.extend(SampleFeaturesforTrain.tag_masks)
+                TrainFeaturesLabels.sel_masks.extend(SampleFeaturesforTrain.sel_masks)
+                TrainFeaturesLabels.con_masks.extend(SampleFeaturesforTrain.con_masks)
+                TrainFeaturesLabels.type_masks.extend(SampleFeaturesforTrain.type_masks)
+                TrainFeaturesLabels.attention_masks.extend(SampleFeaturesforTrain.attention_masks)
+                TrainFeaturesLabels.connection_labels.extend(SampleFeaturesforTrain.connection_labels)
+                TrainFeaturesLabels.agg_labels.extend(SampleFeaturesforTrain.agg_labels)
+                TrainFeaturesLabels.tag_labels.extend(SampleFeaturesforTrain.tag_labels)
+                TrainFeaturesLabels.con_num_labels.extend(SampleFeaturesforTrain.con_num_labels)
+                TrainFeaturesLabels.type_labels.extend(SampleFeaturesforTrain.type_labels)
+                TrainFeaturesLabels.cls_index_list.extend(SampleFeaturesforTrain.cls_index_list)
+                TrainFeaturesLabels.conc_tokens.extend(SampleFeaturesforTrain.conc_tokens)
+                TrainFeaturesLabels.header_question_list.extend(SampleFeaturesforTrain.header_question_list)
+                TrainFeaturesLabels.header_table_id_list.extend(SampleFeaturesforTrain.header_table_id_list)
+                TrainFeaturesLabels.header_masks.extend(SampleFeaturesforTrain.header_masks)
+                TrainFeaturesLabels.question_masks.extend(SampleFeaturesforTrain.question_masks)
+                TrainFeaturesLabels.subheader_cls_list.extend(SampleFeaturesforTrain.subheader_cls_list)
+                TrainFeaturesLabels.subheader_masks.extend(SampleFeaturesforTrain.subheader_masks)
+                TrainFeaturesLabels.sel_num_labels.extend(SampleFeaturesforTrain.sel_num_labels)
+                TrainFeaturesLabels.where_num_labels.extend(SampleFeaturesforTrain.where_num_labels)
+                TrainFeaturesLabels.op_labels.extend(SampleFeaturesforTrain.op_labels)
+                TrainFeaturesLabels.value_masks.extend(SampleFeaturesforTrain.value_masks)
+                TrainFeaturesLabels.question_token_list.append(train_question)
                 TrainFeaturesLabels.sample_index_list.append(len(TrainFeaturesLabels.conc_tokens))
                 TrainFeaturesLabels.sql_list.append(sample["sql"])
                 TrainFeaturesLabels.question_list.append(sample["question"].strip().replace(" ", ""))
                 TrainFeaturesLabels.table_id_list.append(sample["table_id"])
 
             for sample in valid_data_list:
-                processed_result = self.process_sample(sample, valid_table_dict, bert_tokenizer)
-                ValidFeaturesLabels.tag_masks.extend(processed_result[0])
-                ValidFeaturesLabels.sel_masks.extend(processed_result[1])
-                ValidFeaturesLabels.con_masks.extend(processed_result[2])
-                ValidFeaturesLabels.type_masks.extend(processed_result[3])
-                ValidFeaturesLabels.attention_masks.extend(processed_result[4])
-                ValidFeaturesLabels.connection_labels.extend(processed_result[5])
-                ValidFeaturesLabels.agg_labels.extend(processed_result[6])
-                ValidFeaturesLabels.tag_labels.extend(processed_result[7])
-                ValidFeaturesLabels.con_num_labels.extend(processed_result[8])
-                ValidFeaturesLabels.type_labels.extend(processed_result[9])
-                ValidFeaturesLabels.cls_index_list.extend(processed_result[10])
-                ValidFeaturesLabels.conc_tokens.extend(processed_result[11])
-                ValidFeaturesLabels.header_question_list.extend(processed_result[12])
-                ValidFeaturesLabels.header_table_id_list.extend(processed_result[13])
-                ValidFeaturesLabels.header_masks.extend(processed_result[14])
-                ValidFeaturesLabels.question_masks.extend(processed_result[15])
-                ValidFeaturesLabels.subheader_cls_list.extend(processed_result[16])
-                ValidFeaturesLabels.subheader_masks.extend(processed_result[17])
-                ValidFeaturesLabels.sel_num_labels.extend(processed_result[18])
-                ValidFeaturesLabels.where_num_labels.extend(processed_result[19])
-                ValidFeaturesLabels.op_labels.extend(processed_result[20])
-                ValidFeaturesLabels.value_masks.extend(processed_result[21])
-                ValidFeaturesLabels.question_token_list.append(processed_result[22])
+                SampleFeaturesforValid, valid_question = self.process_sample(sample, valid_table_dict, bert_tokenizer)
+                ValidFeaturesLabels.tag_masks.extend(SampleFeaturesforValid.tag_masks)
+                ValidFeaturesLabels.sel_masks.extend(SampleFeaturesforValid.sel_masks)
+                ValidFeaturesLabels.con_masks.extend(SampleFeaturesforValid.con_masks)
+                ValidFeaturesLabels.type_masks.extend(SampleFeaturesforValid.type_masks)
+                ValidFeaturesLabels.attention_masks.extend(SampleFeaturesforValid.attention_masks)
+                ValidFeaturesLabels.connection_labels.extend(SampleFeaturesforValid.connection_labels)
+                ValidFeaturesLabels.agg_labels.extend(SampleFeaturesforValid.agg_labels)
+                ValidFeaturesLabels.tag_labels.extend(SampleFeaturesforValid.tag_labels)
+                ValidFeaturesLabels.con_num_labels.extend(SampleFeaturesforValid.con_num_labels)
+                ValidFeaturesLabels.type_labels.extend(SampleFeaturesforValid.type_labels)
+                ValidFeaturesLabels.cls_index_list.extend(SampleFeaturesforValid.cls_index_list)
+                ValidFeaturesLabels.conc_tokens.extend(SampleFeaturesforValid.conc_tokens)
+                ValidFeaturesLabels.header_question_list.extend(SampleFeaturesforValid.header_question_list)
+                ValidFeaturesLabels.header_table_id_list.extend(SampleFeaturesforValid.header_table_id_list)
+                ValidFeaturesLabels.header_masks.extend(SampleFeaturesforValid.header_masks)
+                ValidFeaturesLabels.question_masks.extend(SampleFeaturesforValid.question_masks)
+                ValidFeaturesLabels.subheader_cls_list.extend(SampleFeaturesforValid.subheader_cls_list)
+                ValidFeaturesLabels.subheader_masks.extend(SampleFeaturesforValid.subheader_masks)
+                ValidFeaturesLabels.sel_num_labels.extend(SampleFeaturesforValid.sel_num_labels)
+                ValidFeaturesLabels.where_num_labels.extend(SampleFeaturesforValid.where_num_labels)
+                ValidFeaturesLabels.op_labels.extend(SampleFeaturesforValid.op_labels)
+                ValidFeaturesLabels.value_masks.extend(SampleFeaturesforValid.value_masks)
+                ValidFeaturesLabels.question_token_list.append(valid_question)
                 ValidFeaturesLabels.sample_index_list.append(len(ValidFeaturesLabels.conc_tokens))
                 ValidFeaturesLabels.sql_list.append(sample["sql"])
                 ValidFeaturesLabels.question_list.append(sample["question"].strip().replace(" ", ""))
@@ -1403,17 +1402,17 @@ class Trainer:
             bert_tokenizer = BertTokenizer.from_pretrained(self.bert_model_path, cache_dir=None, do_lower_case=True)
 
             for sample in test_data_list:
-                processed_result = self.process_sample_test(sample, test_table_dict, bert_tokenizer)
-                TestFeaturesLabels.attention_masks.extend(processed_result[0])
-                TestFeaturesLabels.cls_index_list.extend(processed_result[1])
-                TestFeaturesLabels.conc_tokens.extend(processed_result[2])
-                TestFeaturesLabels.header_masks.extend(processed_result[3])
-                TestFeaturesLabels.question_masks.extend(processed_result[4])
-                TestFeaturesLabels.subheader_cls_list.extend(processed_result[5])
-                TestFeaturesLabels.subheader_masks.extend(processed_result[6])
-                TestFeaturesLabels.value_masks.extend(processed_result[7])
-                TestFeaturesLabels.type_masks.extend(processed_result[8])
-                TestFeaturesLabels.question_token_list.append(processed_result[9])
+                FeaturesLabelsforTest, test_question = self.process_sample_test(sample, test_table_dict, bert_tokenizer)
+                TestFeaturesLabels.attention_masks.extend(FeaturesLabelsforTest.attention_masks)
+                TestFeaturesLabels.cls_index_list.extend(FeaturesLabelsforTest.cls_index_list)
+                TestFeaturesLabels.conc_tokens.extend(FeaturesLabelsforTest.conc_tokens)
+                TestFeaturesLabels.header_masks.extend(FeaturesLabelsforTest.header_masks)
+                TestFeaturesLabels.question_masks.extend(FeaturesLabelsforTest.question_masks)
+                TestFeaturesLabels.subheader_cls_list.extend(FeaturesLabelsforTest.subheader_cls_list)
+                TestFeaturesLabels.subheader_masks.extend(FeaturesLabelsforTest.subheader_masks)
+                TestFeaturesLabels.value_masks.extend(FeaturesLabelsforTest.value_masks)
+                TestFeaturesLabels.type_masks.extend(FeaturesLabelsforTest.type_masks)
+                TestFeaturesLabels.question_token_list.append(test_question)
                 TestFeaturesLabels.sample_index_list.append(len(TestFeaturesLabels.conc_tokens))
                 TestFeaturesLabels.question_list.append(sample["question"].strip().replace(" ", ""))
                 TestFeaturesLabels.table_id_list.append(sample["table_id"])
@@ -1442,30 +1441,30 @@ class Trainer:
             ValidFeaturesLabels = InputFeaturesLabels()
 
             for sample in valid_data_list:
-                processed_result = self.process_sample(sample, valid_table_dict, bert_tokenizer)
-                ValidFeaturesLabels.tag_masks.extend(processed_result[0])
-                ValidFeaturesLabels.sel_masks.extend(processed_result[1])
-                ValidFeaturesLabels.con_masks.extend(processed_result[2])
-                ValidFeaturesLabels.type_masks.extend(processed_result[3])
-                ValidFeaturesLabels.attention_masks.extend(processed_result[4])
-                ValidFeaturesLabels.connection_labels.extend(processed_result[5])
-                ValidFeaturesLabels.agg_labels.extend(processed_result[6])
-                ValidFeaturesLabels.tag_labels.extend(processed_result[7])
-                ValidFeaturesLabels.con_num_labels.extend(processed_result[8])
-                ValidFeaturesLabels.type_labels.extend(processed_result[9])
-                ValidFeaturesLabels.cls_index_list.extend(processed_result[10])
-                ValidFeaturesLabels.conc_tokens.extend(processed_result[11])
-                ValidFeaturesLabels.header_question_list.extend(processed_result[12])
-                ValidFeaturesLabels.header_table_id_list.extend(processed_result[13])
-                ValidFeaturesLabels.header_masks.extend(processed_result[14])
-                ValidFeaturesLabels.question_masks.extend(processed_result[15])
-                ValidFeaturesLabels.subheader_cls_list.extend(processed_result[16])
-                ValidFeaturesLabels.subheader_masks.extend(processed_result[17])
-                ValidFeaturesLabels.sel_num_labels.extend(processed_result[18])
-                ValidFeaturesLabels.where_num_labels.extend(processed_result[19])
-                ValidFeaturesLabels.op_labels.extend(processed_result[20])
-                ValidFeaturesLabels.value_masks.extend(processed_result[21])
-                ValidFeaturesLabels.question_token_list.append(processed_result[22])
+                SampleFeaturesforValid, valid_question = self.process_sample(sample, valid_table_dict, bert_tokenizer)
+                ValidFeaturesLabels.tag_masks.extend(SampleFeaturesforValid.tag_masks)
+                ValidFeaturesLabels.sel_masks.extend(SampleFeaturesforValid.sel_masks)
+                ValidFeaturesLabels.con_masks.extend(SampleFeaturesforValid.con_masks)
+                ValidFeaturesLabels.type_masks.extend(SampleFeaturesforValid.type_masks)
+                ValidFeaturesLabels.attention_masks.extend(SampleFeaturesforValid.attention_masks)
+                ValidFeaturesLabels.connection_labels.extend(SampleFeaturesforValid.connection_labels)
+                ValidFeaturesLabels.agg_labels.extend(SampleFeaturesforValid.agg_labels)
+                ValidFeaturesLabels.tag_labels.extend(SampleFeaturesforValid.tag_labels)
+                ValidFeaturesLabels.con_num_labels.extend(SampleFeaturesforValid.con_num_labels)
+                ValidFeaturesLabels.type_labels.extend(SampleFeaturesforValid.type_labels)
+                ValidFeaturesLabels.cls_index_list.extend(SampleFeaturesforValid.cls_index_list)
+                ValidFeaturesLabels.conc_tokens.extend(SampleFeaturesforValid.conc_tokens)
+                ValidFeaturesLabels.header_question_list.extend(SampleFeaturesforValid.header_question_list)
+                ValidFeaturesLabels.header_table_id_list.extend(SampleFeaturesforValid.header_table_id_list)
+                ValidFeaturesLabels.header_masks.extend(SampleFeaturesforValid.header_masks)
+                ValidFeaturesLabels.question_masks.extend(SampleFeaturesforValid.question_masks)
+                ValidFeaturesLabels.subheader_cls_list.extend(SampleFeaturesforValid.subheader_cls_list)
+                ValidFeaturesLabels.subheader_masks.extend(SampleFeaturesforValid.subheader_masks)
+                ValidFeaturesLabels.sel_num_labels.extend(SampleFeaturesforValid.sel_num_labels)
+                ValidFeaturesLabels.where_num_labels.extend(SampleFeaturesforValid.where_num_labels)
+                ValidFeaturesLabels.op_labels.extend(SampleFeaturesforValid.op_labels)
+                ValidFeaturesLabels.value_masks.extend(SampleFeaturesforValid.value_masks)
+                ValidFeaturesLabels.question_token_list.append(valid_question)
                 ValidFeaturesLabels.sample_index_list.append(len(ValidFeaturesLabels.conc_tokens))
                 ValidFeaturesLabels.sql_list.append(sample["sql"])
                 ValidFeaturesLabels.question_list.append(sample["question"].strip().replace(" ", ""))
@@ -1509,47 +1508,47 @@ class Trainer:
             bert_tokenizer = BertTokenizer.from_pretrained(self.bert_model_path, cache_dir=None, do_lower_case=True)
 
             for sample in valid_data_list:
-                processed_result = self.process_sample(sample, valid_table_dict, bert_tokenizer)
-                ValidFeaturesLabels.tag_masks.extend(processed_result[0])
-                ValidFeaturesLabels.sel_masks.extend(processed_result[1])
-                ValidFeaturesLabels.con_masks.extend(processed_result[2])
-                ValidFeaturesLabels.type_masks.extend(processed_result[3])
-                ValidFeaturesLabels.attention_masks.extend(processed_result[4])
-                ValidFeaturesLabels.connection_labels.extend(processed_result[5])
-                ValidFeaturesLabels.agg_labels.extend(processed_result[6])
-                ValidFeaturesLabels.tag_labels.extend(processed_result[7])
-                ValidFeaturesLabels.con_num_labels.extend(processed_result[8])
-                ValidFeaturesLabels.type_labels.extend(processed_result[9])
-                ValidFeaturesLabels.cls_index_list.extend(processed_result[10])
-                ValidFeaturesLabels.conc_tokens.extend(processed_result[11])
-                ValidFeaturesLabels.header_question_list.extend(processed_result[12])
-                ValidFeaturesLabels.header_table_id_list.extend(processed_result[13])
-                ValidFeaturesLabels.header_masks.extend(processed_result[14])
-                ValidFeaturesLabels.question_masks.extend(processed_result[15])
-                ValidFeaturesLabels.subheader_cls_list.extend(processed_result[16])
-                ValidFeaturesLabels.subheader_masks.extend(processed_result[17])
-                ValidFeaturesLabels.sel_num_labels.extend(processed_result[18])
-                ValidFeaturesLabels.where_num_labels.extend(processed_result[19])
-                ValidFeaturesLabels.op_labels.extend(processed_result[20])
-                ValidFeaturesLabels.value_masks.extend(processed_result[21])
-                ValidFeaturesLabels.question_token_list.append(processed_result[22])
+                SampleFeaturesforValid, valid_question = self.process_sample(sample, valid_table_dict, bert_tokenizer)
+                ValidFeaturesLabels.tag_masks.extend(SampleFeaturesforValid.tag_masks)
+                ValidFeaturesLabels.sel_masks.extend(SampleFeaturesforValid.sel_masks)
+                ValidFeaturesLabels.con_masks.extend(SampleFeaturesforValid.con_masks)
+                ValidFeaturesLabels.type_masks.extend(SampleFeaturesforValid.type_masks)
+                ValidFeaturesLabels.attention_masks.extend(SampleFeaturesforValid.attention_masks)
+                ValidFeaturesLabels.connection_labels.extend(SampleFeaturesforValid.connection_labels)
+                ValidFeaturesLabels.agg_labels.extend(SampleFeaturesforValid.agg_labels)
+                ValidFeaturesLabels.tag_labels.extend(SampleFeaturesforValid.tag_labels)
+                ValidFeaturesLabels.con_num_labels.extend(SampleFeaturesforValid.con_num_labels)
+                ValidFeaturesLabels.type_labels.extend(SampleFeaturesforValid.type_labels)
+                ValidFeaturesLabels.cls_index_list.extend(SampleFeaturesforValid.cls_index_list)
+                ValidFeaturesLabels.conc_tokens.extend(SampleFeaturesforValid.conc_tokens)
+                ValidFeaturesLabels.header_question_list.extend(SampleFeaturesforValid.header_question_list)
+                ValidFeaturesLabels.header_table_id_list.extend(SampleFeaturesforValid.header_table_id_list)
+                ValidFeaturesLabels.header_masks.extend(SampleFeaturesforValid.header_masks)
+                ValidFeaturesLabels.question_masks.extend(SampleFeaturesforValid.question_masks)
+                ValidFeaturesLabels.subheader_cls_list.extend(SampleFeaturesforValid.subheader_cls_list)
+                ValidFeaturesLabels.subheader_masks.extend(SampleFeaturesforValid.subheader_masks)
+                ValidFeaturesLabels.sel_num_labels.extend(SampleFeaturesforValid.sel_num_labels)
+                ValidFeaturesLabels.where_num_labels.extend(SampleFeaturesforValid.where_num_labels)
+                ValidFeaturesLabels.op_labels.extend(SampleFeaturesforValid.op_labels)
+                ValidFeaturesLabels.value_masks.extend(SampleFeaturesforValid.value_masks)
+                ValidFeaturesLabels.question_token_list.append(valid_question)
                 ValidFeaturesLabels.sample_index_list.append(len(ValidFeaturesLabels.conc_tokens))
                 ValidFeaturesLabels.sql_list.append(sample["sql"])
                 ValidFeaturesLabels.question_list.append(sample["question"].strip().replace(" ", ""))
                 ValidFeaturesLabels.table_id_list.append(sample["table_id"])
 
             for sample in test_data_list:
-                processed_result = self.process_sample_test(sample, test_table_dict, bert_tokenizer)
-                TestFeaturesLabels.attention_masks.extend(processed_result[0])
-                TestFeaturesLabels.cls_index_list.extend(processed_result[1])
-                TestFeaturesLabels.conc_tokens.extend(processed_result[2])
-                TestFeaturesLabels.header_masks.extend(processed_result[3])
-                TestFeaturesLabels.question_masks.extend(processed_result[4])
-                TestFeaturesLabels.subheader_cls_list.extend(processed_result[5])
-                TestFeaturesLabels.subheader_masks.extend(processed_result[6])
-                TestFeaturesLabels.value_masks.extend(processed_result[7])
-                TestFeaturesLabels.type_masks.extend(processed_result[8])
-                TestFeaturesLabels.question_token_list.append(processed_result[9])
+                FeaturesLabelsforTest, test_question = self.process_sample_test(sample, test_table_dict, bert_tokenizer)
+                TestFeaturesLabels.attention_masks.extend(FeaturesLabelsforTest.attention_masks)
+                TestFeaturesLabels.cls_index_list.extend(FeaturesLabelsforTest.cls_index_list)
+                TestFeaturesLabels.conc_tokens.extend(FeaturesLabelsforTest.conc_tokens)
+                TestFeaturesLabels.header_masks.extend(FeaturesLabelsforTest.header_masks)
+                TestFeaturesLabels.question_masks.extend(FeaturesLabelsforTest.question_masks)
+                TestFeaturesLabels.subheader_cls_list.extend(FeaturesLabelsforTest.subheader_cls_list)
+                TestFeaturesLabels.subheader_masks.extend(FeaturesLabelsforTest.subheader_masks)
+                TestFeaturesLabels.value_masks.extend(FeaturesLabelsforTest.value_masks)
+                TestFeaturesLabels.type_masks.extend(FeaturesLabelsforTest.type_masks)
+                TestFeaturesLabels.question_token_list.append(test_question)
                 TestFeaturesLabels.sample_index_list.append(len(TestFeaturesLabels.conc_tokens))
                 TestFeaturesLabels.question_list.append(sample["question"].strip().replace(" ", ""))
                 TestFeaturesLabels.table_id_list.append(sample["table_id"])
