@@ -1,3 +1,5 @@
+#coding=utf-8
+
 import numpy as np
 from sklearn.metrics import *
 import copy
@@ -6,11 +8,11 @@ import json
 
 class Evaluate:
     @staticmethod
-    def sigmoid(self, x):
+    def sigmoid(x):
         return 1 / (1 + np.exp(-x))
 
     @staticmethod
-    def detail_score(self, y_true, y_pred, num_labels, ignore_num=None):
+    def detail_score(y_true, y_pred, num_labels, ignore_num=None):
         detail_y_true = [[] for _ in range(num_labels)]
         detail_y_pred = [[] for _ in range(num_labels)]
         for i in range(len(y_pred)):
@@ -43,7 +45,7 @@ class Evaluate:
         return output_str
 
     @staticmethod
-    def sql_match(self, s1, s2):
+    def sql_match(s1, s2):
         return (s1['cond_conn_op'] == s2['cond_conn_op']) & \
                (set(zip(s1['sel'], s1['agg'])) == set(zip(s2['sel'], s2['agg']))) & \
                (set([tuple(i) for i in s1['conds']]) == set([tuple(i) for i in s2['conds']]))
@@ -138,7 +140,7 @@ class Evaluate:
                 value_start_index_list = []
                 previous_tag = -1
 
-                # °Ñ token µÄ tag_list À©Õ¹³É question ³¤¶È
+                # æŠŠ token çš„ tag_list æ‰©å±•æˆ question é•¿åº¦
                 question_tag_list = []
                 for i in range(len(tag_list)):
                     tag = tag_list[i]
@@ -151,16 +153,16 @@ class Evaluate:
 
                 for i in range(0, len(question_tag_list)):
                     current_tag = question_tag_list[i]
-                    # Ò»¸ö value ½áÊø
+                    # ä¸€ä¸ª value ç»“æŸ
                     if current_tag == 0:
                         if previous_tag == 1:
                             candidate_list.append([[], []])
                             candidate_list_index += 1
-                    # Ò»¸ö value ¿ªÊ¼
+                    # ä¸€ä¸ª value å¼€å§‹
                     else:
                         if previous_tag in [-1, 0]:
                             value_start_index_list.append(i)
-                        candidate_list[candidate_list_index][0].append(sample_question[i])  # ¶àÁËÒ»¸ö cls
+                        candidate_list[candidate_list_index][0].append(sample_question[i])  # å¤šäº†ä¸€ä¸ª cls
                         candidate_list[candidate_list_index][1].append(question_tag_list[i])
                     previous_tag = current_tag
                 con_list = []
@@ -191,9 +193,9 @@ class Evaluate:
                             candidate_value_set.add(digit)
                     replace_candidate_set = optimizer.create_candidate_set(value_str)
                     candidate_value_set |= replace_candidate_set
-                    # È·¶¨ value Öµ
+                    # ç¡®å®š value å€¼
                     final_value = value_str  # default
-                    if op != 2:  # ²»ÊÇ =£¬²»ÄÜËÑË÷£¬ÄÜ±È´óĞ¡µÄÓ¦¸Ã¾ÍÊÇÊı×Ö
+                    if op != 2:  # ä¸æ˜¯ =ï¼Œä¸èƒ½æœç´¢ï¼Œèƒ½æ¯”å¤§å°çš„åº”è¯¥å°±æ˜¯æ•°å­—
                         if longest_digit_num:
                             final_value = longest_digit_num
                             if final_value != value_str: value_change_list.append([value_str, final_value])
@@ -208,9 +210,9 @@ class Evaluate:
                                 final_value = best_value
                                 if final_value != value_str: value_change_list.append([value_str, final_value])
                             else:
-                                value_change_list.append([value_str, "¶ªÆú"])
-                                continue  # =£¬²»ÔÚÁĞ±íÄÚ£¬Ò²Ã»ÕÒµ½Ä£ºıÆ¥Åä£¬Å×Æú
-                    # con_list ÊÇÒ»ÁĞÀïÃæµÄ con
+                                value_change_list.append([value_str, "ä¸¢å¼ƒ"])
+                                continue  # =ï¼Œä¸åœ¨åˆ—è¡¨å†…ï¼Œä¹Ÿæ²¡æ‰¾åˆ°æ¨¡ç³ŠåŒ¹é…ï¼ŒæŠ›å¼ƒ
+                    # con_list æ˜¯ä¸€åˆ—é‡Œé¢çš„ con
                     con_list.append([con_col, op, final_value])
                 if len(con_list) == con_num:
                     for [con_col, op, final_value] in con_list:
@@ -230,7 +232,7 @@ class Evaluate:
             where_prob_list = sorted(where_prob_list, key=lambda x: (-(x["type"] ** 2 - 1) ** 2, x["prob"]),
                                      reverse=True)
 
-            # TODO: connectionÖ»ÓĞwhereÊ±²ÅÔ¤²â£¬Òª¸Ä¹ıÀ´£¬Ç°where
+            # TODO: connectionåªæœ‰whereæ—¶æ‰é¢„æµ‹ï¼Œè¦æ”¹è¿‡æ¥ï¼Œå‰where
             if where_num <= 1 or len(where_prob_list) == 0:
                 connection = 0
             else:
@@ -259,14 +261,14 @@ class Evaluate:
                         map(lambda x: x[0], sample_sql["conds"]))
                     for j, table_header in enumerate(table_header_list):
                         if j in cols:
-                            f_valid.write("%d¡¢%s\n" % (j, table_header))
+                            f_valid.write("%dã€%s\n" % (j, table_header))
                     f_valid.write("\n")
 
         if do_test is False:
             logical_acc = matched_num / len(sample_index_list)
             print("logical_acc", logical_acc)
 
-            op_sql_dict = {0: ">", 1: "<", 2: "==", 3: "!=", 4: "²»Ñ¡ÖĞ"}
+            op_sql_dict = {0: ">", 1: "<", 2: "==", 3: "!=", 4: "ä¸é€‰ä¸­"}
             agg_sql_dict = {0: "", 1: "AVG", 2: "MAX", 3: "MIN", 4: "COUNT", 5: "SUM"}
             conn_sql_dict = {0: "", 1: "and", 2: "or"}
             con_num_dict = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}
@@ -296,7 +298,7 @@ class Evaluate:
                     agg_true.append(agg_labels_list[i])
                 elif col_type == 1:  # con
                     cls_index = cls_index_list[i]
-                    tmp_tag_pred = sequence_labeling_predict[i][1: cls_index - 1]  # ²»È¡ cls ºÍ sep
+                    tmp_tag_pred = sequence_labeling_predict[i][1: cls_index - 1]  # ä¸å– cls å’Œ sep
                     tmp_tag_true = tag_labels_list[i][1: cls_index - 1]
                     question = header_question_list[i]
                     table_id = header_table_id_list[i]
