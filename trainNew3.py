@@ -2096,7 +2096,7 @@ class Trainer:
             eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists,
                                                               ValidFeaturesLabels.question_list, ValidFeaturesLabels.token_list,
                                                               ValidFeaturesLabels.table_id_list, ValidFeaturesLabels.sample_index_list,
-                                                              ValidFeaturesLabels.sql_list, ValidFeaturesLabels.table_dict,
+                                                              ValidFeaturesLabels.sql_list, valid_table_dict,
                                                               ValidFeaturesLabels.header_question_list, ValidFeaturesLabels.header_table_id_list)
 
             score = logical_acc
@@ -2247,7 +2247,7 @@ class Trainer:
             eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists,
                                                               ValidFeaturesLabels.question_list, ValidFeaturesLabels.question_token_list,
                                                               ValidFeaturesLabels.table_id_list, ValidFeaturesLabels.sample_index_list,
-                                                              ValidFeaturesLabels.sql_list, ValidFeaturesLabels.table_dict,
+                                                              ValidFeaturesLabels.sql_list, valid_table_dict,
                                                               ValidFeaturesLabels.header_question_list, ValidFeaturesLabels.header_table_id_list)
             print(eval_result)
 
