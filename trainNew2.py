@@ -733,13 +733,13 @@ class BertNeuralNet(BertPreTrainedModel):
         self.linear_op = nn.Linear(self.hidden_size * 2, self.num_op_labels)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, attention_mask, all_masks, header_masks, question_masks, subheader_masks, subheader_cls_list, value_masks, cls_index_list, train_dependencies=None):
+    def forward(self, input_ids, attention_mask, all_masks, header_masks, question_masks, subheader_masks, subheader_cls_list, value_masks, firstColumn_CLS_startPositionList, train_dependencies=None):
         sequence_output, _ = self.bert(input_ids, None, attention_mask, output_all_encoded_layers=False)
 
         device = "cuda" if torch.cuda.is_available() else None
         type_masks = all_masks.view(-1) == 1
         # TODO: 如果是求平均值就计算每行mask总和，mask，每行相加除以每行总和
-        cls_output = sequence_output[type_masks, cls_index_list[type_masks], :]
+        cls_output = sequence_output[type_masks, firstColumn_CLS_startPositionList[type_masks], :]
         _, subheader_attention = self.head_attention(cls_output, sequence_output, subheader_masks)
         cat_cls = torch.cat([cls_output, subheader_attention], 1)
 
@@ -804,7 +804,7 @@ class BertNeuralNet(BertPreTrainedModel):
                     if attention_mask[i][j] == 1:
                         tag_output[i][j] = cat_output[i][j]
             head_output = sequence_output[:, 0, :]
-            # cls_output = sequence_output[all_masks, cls_index_list, :]
+            # cls_output = sequence_output[all_masks, firstColumn_CLS_startPositionList, :]
             tag_output = self.linear_tag(self.dropout(tag_output))
             agg_output = self.linear_agg(self.dropout(cat_cls))
             connection_output = self.linear_connection(self.dropout(head_output))
@@ -833,9 +833,6 @@ class BertNeuralNet(BertPreTrainedModel):
             op_logits = torch.argmax(F.log_softmax(op_output, dim=1), dim=1).detach().cpu().numpy().tolist()
 
             return tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits
-
-
-
 
 class Trainer:
     def __init__(self, data_dir, epochs=1, batch_size=64, base_batch_size=32, max_len=120, seed=1234, debug =False):
@@ -977,9 +974,9 @@ class Trainer:
         tag_labels = []
         con_num_labels = []
         type_labels = []
-        cls_index_list = []
-        header_question_list = []
-        header_table_id_list = []
+        firstColumn_CLS_startPositionList = []
+        column_queryList = []
+        column_tableidList = []
         subheader_cls_list = []
         subheader_masks = []
         sel_num_labels = []
@@ -1116,9 +1113,9 @@ class Trainer:
             tag_labels.append(sequence_labeling_label)
             con_num_labels.append(where_conlumn_number_label)
             type_labels.append(type_label)
-            cls_index_list.append(firstColumn_CLS_startPosition)
-            header_question_list.append(question)
-            header_table_id_list.append(tableID)
+            firstColumn_CLS_startPositionList.append(firstColumn_CLS_startPosition)
+            column_queryList.append(question)
+            column_tableidList.append(tableID)
             header_masks.append(each_column_inputMask)
             question_masks.append(question_inputMask)
             subheader_cls_list.append(nextColumn_CLS_startPosition)
@@ -1128,14 +1125,14 @@ class Trainer:
             op_labels.append(op_label)
             value_masks.append(value_inputMask)
 
-        return tag_masks, sel_masks, con_masks, type_masks, attention_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels, cls_index_list, conc_tokens, header_question_list, header_table_id_list, header_masks, question_masks, subheader_cls_list, subheader_masks, sel_num_labels, where_num_labels, op_labels, value_masks, question_
+        return tag_masks, sel_masks, con_masks, type_masks, attention_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels, firstColumn_CLS_startPositionList, conc_tokens, column_queryList, column_tableidList, header_masks, question_masks, subheader_cls_list, subheader_masks, sel_num_labels, where_num_labels, op_labels, value_masks, question_
 
-    def process_sample_test(self, sample, table_dict, bert_tokenizer):
+    def process_sample_test(self, sample, tableData, bert_tokenizer):
         question = sample["question"]
         table_id = sample["table_id"]
-        table_title = table_dict[table_id]["title"]
-        table_header_list = table_dict[table_id]["header"]
-        table_row_list = table_dict[table_id]["rows"]
+        table_title = tableData[table_id]["title"]
+        table_header_list = tableData[table_id]["header"]
+        table_row_list = tableData[table_id]["rows"]
         question = question.strip().replace(" ", "")
 
         col_dict = {header_name: set() for header_name in table_header_list}
@@ -1149,7 +1146,7 @@ class Trainer:
         header_masks = []
         question_masks = []
         value_masks = []
-        cls_index_list = []
+        firstColumn_CLS_startPositionList = []
         subheader_cls_list = []
         subheader_masks = []
 
@@ -1157,7 +1154,7 @@ class Trainer:
         question_ids = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + question_tokens + ["[SEP]"])
         header_cls_index = len(question_ids)
         question_mask = self.create_mask(max_len=self.max_len, start_index=1, mask_len=len(question_tokens))
-        # tag_list = sample_tag_logits[j][1: cls_index - 1]
+        # tag_list = eachSequence_LabelingPredict[j][1: cls_index - 1]
         for col in range(len(table_header_list)):
             header = table_header_list[col]
             value_set = col_dict[header]
@@ -1203,7 +1200,7 @@ class Trainer:
 
             conc_tokens.append(conc_ids)
             attention_masks.append(attention_mask)
-            cls_index_list.append(header_cls_index)
+            firstColumn_CLS_startPositionList.append(header_cls_index)
             header_masks.append(header_mask)
             question_masks.append(question_mask)
             subheader_cls_list.append(subheader_cls_index)
@@ -1211,7 +1208,7 @@ class Trainer:
             value_masks.append(value_mask)
         type_masks = [1] * len(conc_tokens)
 
-        return attention_masks, cls_index_list, conc_tokens, header_masks, question_masks, subheader_cls_list, subheader_masks, value_masks, type_masks, question_tokens
+        return attention_masks, firstColumn_CLS_startPositionList, conc_tokens, header_masks, question_masks, subheader_cls_list, subheader_masks, value_masks, type_masks, question_tokens
 
     def data_iterator(self):
         """
@@ -1224,12 +1221,12 @@ class Trainer:
         问题部分：序列标注，（每一个字的隐层和列开头cls拼接？再拼接列所有字符的avg？），二分类，如果列是where并且是对应value的，标注为1
         """
         # train: 41522 val: 4396 test: 4086
-        train_data_list = self.read_query(self.train_data_path)
-        train_table_dict = self.read_table(self.train_table_path)
-        valid_data_list = self.read_query(self.valid_data_path)
-        valid_table_dict = self.read_table(self.valid_table_path)
-        test_data_list = self.read_query(self.test_data_path)
-        test_table_dict = self.read_table(self.test_table_path)
+        train_queryData = self.read_query(self.train_data_path)
+        train_tableData = self.read_table(self.train_table_path)
+        valid_queryData = self.read_query(self.valid_data_path)
+        valid_tableData = self.read_table(self.valid_table_path)
+        test_queryData = self.read_query(self.test_data_path)
+        test_tableData = self.read_table(self.test_table_path)
         bert_tokenizer = BertTokenizer.from_pretrained(self.bert_model_path, cache_dir=None, do_lower_case=True)
         train_conc_tokens = []
         train_tag_masks = []
@@ -1242,13 +1239,13 @@ class Trainer:
         train_tag_labels = []
         train_con_num_labels = []
         train_type_labels = []
-        train_cls_index_list = []
+        train_firstColumn_CLS_startPositionList = []
         train_question_list = []
         train_table_id_list = []
-        train_sample_index_list = []
+        train_eachData_index = []
         train_sql_list = []
-        train_header_question_list = []
-        train_header_table_id_list = []
+        train_column_queryList = []
+        train_column_tableidList = []
         train_header_masks = []
         train_question_masks = []
         train_subheader_cls_list = []
@@ -1257,9 +1254,9 @@ class Trainer:
         train_where_num_labels = []
         train_op_labels = []
         train_value_masks = []
-        train_question_token_list = []
-        for sample in train_data_list:
-            processed_result = self.process_sample(sample, train_table_dict, bert_tokenizer)
+        train_question_tokens = []
+        for sample in train_queryData:
+            processed_result = self.process_sample(sample, train_tableData, bert_tokenizer)
             train_tag_masks.extend(processed_result[0])
             train_sel_masks.extend(processed_result[1])
             train_con_masks.extend(processed_result[2])
@@ -1270,10 +1267,10 @@ class Trainer:
             train_tag_labels.extend(processed_result[7])
             train_con_num_labels.extend(processed_result[8])
             train_type_labels.extend(processed_result[9])
-            train_cls_index_list.extend(processed_result[10])
+            train_firstColumn_CLS_startPositionList.extend(processed_result[10])
             train_conc_tokens.extend(processed_result[11])
-            train_header_question_list.extend(processed_result[12])
-            train_header_table_id_list.extend(processed_result[13])
+            train_column_queryList.extend(processed_result[12])
+            train_column_tableidList.extend(processed_result[13])
             train_header_masks.extend(processed_result[14])
             train_question_masks.extend(processed_result[15])
             train_subheader_cls_list.extend(processed_result[16])
@@ -1282,8 +1279,8 @@ class Trainer:
             train_where_num_labels.extend(processed_result[19])
             train_op_labels.extend(processed_result[20])
             train_value_masks.extend(processed_result[21])
-            train_question_token_list.append(processed_result[22])
-            train_sample_index_list.append(len(train_conc_tokens))
+            train_question_tokens.append(processed_result[22])
+            train_eachData_index.append(len(train_conc_tokens))
             train_sql_list.append(sample["sql"])
             train_question_list.append(sample["question"].strip().replace(" ", ""))
             train_table_id_list.append(sample["table_id"])
@@ -1298,13 +1295,13 @@ class Trainer:
         valid_tag_labels = []
         valid_con_num_labels = []
         valid_type_labels = []
-        valid_cls_index_list = []
+        valid_firstColumn_CLS_startPositionList = []
         valid_question_list = []
         valid_table_id_list = []
-        valid_sample_index_list = []
+        valid_eachData_index = []
         valid_sql_list = []
-        valid_header_question_list = []
-        valid_header_table_id_list = []
+        valid_column_queryList = []
+        valid_column_tableidList = []
         valid_header_masks = []
         valid_question_masks = []
         valid_subheader_cls_list = []
@@ -1313,9 +1310,9 @@ class Trainer:
         valid_where_num_labels = []
         valid_op_labels = []
         valid_value_masks = []
-        valid_question_token_list = []
-        for sample in valid_data_list:
-            processed_result = self.process_sample(sample, valid_table_dict, bert_tokenizer)
+        valid_question_tokens = []
+        for sample in valid_queryData:
+            processed_result = self.process_sample(sample, valid_tableData, bert_tokenizer)
             valid_tag_masks.extend(processed_result[0])
             valid_sel_masks.extend(processed_result[1])
             valid_con_masks.extend(processed_result[2])
@@ -1326,10 +1323,10 @@ class Trainer:
             valid_tag_labels.extend(processed_result[7])
             valid_con_num_labels.extend(processed_result[8])
             valid_type_labels.extend(processed_result[9])
-            valid_cls_index_list.extend(processed_result[10])
+            valid_firstColumn_CLS_startPositionList.extend(processed_result[10])
             valid_conc_tokens.extend(processed_result[11])
-            valid_header_question_list.extend(processed_result[12])
-            valid_header_table_id_list.extend(processed_result[13])
+            valid_column_queryList.extend(processed_result[12])
+            valid_column_tableidList.extend(processed_result[13])
             valid_header_masks.extend(processed_result[14])
             valid_question_masks.extend(processed_result[15])
             valid_subheader_cls_list.extend(processed_result[16])
@@ -1338,28 +1335,28 @@ class Trainer:
             valid_where_num_labels.extend(processed_result[19])
             valid_op_labels.extend(processed_result[20])
             valid_value_masks.extend(processed_result[21])
-            valid_question_token_list.append(processed_result[22])
-            valid_sample_index_list.append(len(valid_conc_tokens))
+            valid_question_tokens.append(processed_result[22])
+            valid_eachData_index.append(len(valid_conc_tokens))
             valid_sql_list.append(sample["sql"])
             valid_question_list.append(sample["question"].strip().replace(" ", ""))
             valid_table_id_list.append(sample["table_id"])
         test_conc_tokens = []
         test_attention_masks = []
-        test_cls_index_list = []
+        test_firstColumn_CLS_startPositionList = []
         test_question_list = []
         test_table_id_list = []
-        test_sample_index_list = []
+        test_eachData_index = []
         test_header_masks = []
         test_question_masks = []
         test_subheader_cls_list = []
         test_subheader_masks = []
         test_value_masks = []
         test_type_masks = []
-        test_question_token_list = []
-        for sample in test_data_list:
-            processed_result = self.process_sample_test(sample, test_table_dict, bert_tokenizer)
+        test_question_tokens = []
+        for sample in test_queryData:
+            processed_result = self.process_sample_test(sample, test_tableData, bert_tokenizer)
             test_attention_masks.extend(processed_result[0])
-            test_cls_index_list.extend(processed_result[1])
+            test_firstColumn_CLS_startPositionList.extend(processed_result[1])
             test_conc_tokens.extend(processed_result[2])
             test_header_masks.extend(processed_result[3])
             test_question_masks.extend(processed_result[4])
@@ -1367,8 +1364,8 @@ class Trainer:
             test_subheader_masks.extend(processed_result[6])
             test_value_masks.extend(processed_result[7])
             test_type_masks.extend(processed_result[8])
-            test_question_token_list.append(processed_result[9])
-            test_sample_index_list.append(len(test_conc_tokens))
+            test_question_tokens.append(processed_result[9])
+            test_eachData_index.append(len(test_conc_tokens))
             test_question_list.append(sample["question"].strip().replace(" ", ""))
             test_table_id_list.append(sample["table_id"])
         train_dataset = data.TensorDataset(torch.tensor(train_conc_tokens, dtype=torch.long),
@@ -1382,7 +1379,7 @@ class Trainer:
                                            torch.tensor(train_tag_labels, dtype=torch.long),
                                            torch.tensor(train_con_num_labels, dtype=torch.long),
                                            torch.tensor(train_type_labels, dtype=torch.long),
-                                           torch.tensor(train_cls_index_list, dtype=torch.long),
+                                           torch.tensor(train_firstColumn_CLS_startPositionList, dtype=torch.long),
                                            torch.tensor(train_header_masks, dtype=torch.long),
                                            torch.tensor(train_question_masks, dtype=torch.long),
                                            torch.tensor(train_subheader_cls_list, dtype=torch.long),
@@ -1403,7 +1400,7 @@ class Trainer:
                                            torch.tensor(valid_tag_labels, dtype=torch.long),
                                            torch.tensor(valid_con_num_labels, dtype=torch.long),
                                            torch.tensor(valid_type_labels, dtype=torch.long),
-                                           torch.tensor(valid_cls_index_list, dtype=torch.long),
+                                           torch.tensor(valid_firstColumn_CLS_startPositionList, dtype=torch.long),
                                            torch.tensor(valid_header_masks, dtype=torch.long),
                                            torch.tensor(valid_question_masks, dtype=torch.long),
                                            torch.tensor(valid_subheader_cls_list, dtype=torch.long),
@@ -1415,7 +1412,7 @@ class Trainer:
                                            )
         test_dataset = data.TensorDataset(torch.tensor(test_conc_tokens, dtype=torch.long),
                                           torch.tensor(test_attention_masks, dtype=torch.long),
-                                          torch.tensor(test_cls_index_list, dtype=torch.long),
+                                          torch.tensor(test_firstColumn_CLS_startPositionList, dtype=torch.long),
                                           torch.tensor(test_header_masks, dtype=torch.long),
                                           torch.tensor(test_question_masks, dtype=torch.long),
                                           torch.tensor(test_subheader_cls_list, dtype=torch.long),
@@ -1428,7 +1425,7 @@ class Trainer:
         valid_iterator = torch.utils.data.DataLoader(valid_dataset, batch_size=self.base_batch_size, shuffle=False)
         test_iterator = torch.utils.data.DataLoader(test_dataset, batch_size=self.base_batch_size, shuffle=False)
         # 返回训练数据
-        return train_iterator, valid_iterator, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_iterator, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict, valid_question_token_list, test_question_token_list
+        return train_iterator, valid_iterator, valid_question_list, valid_table_id_list, valid_eachData_index, valid_sql_list, valid_tableData, valid_column_queryList, valid_column_tableidList, test_iterator, test_question_list, test_table_id_list, test_eachData_index, test_tableData, valid_question_tokens, test_question_tokens
 
     def sigmoid(self, x):
         return 1 / (1 + np.exp(-x))
@@ -1469,65 +1466,54 @@ class Trainer:
                (set(zip(s1['sel'], s1['agg'])) == set(zip(s2['sel'], s2['agg']))) & \
                (set([tuple(i) for i in s1['conds']]) == set([tuple(i) for i in s2['conds']]))
 
-    def evaluate(self, logits_lists, cls_index_list, labels_lists, question_list, question_token_list, table_id_list, sample_index_list, correct_sql_list, table_dict, header_question_list, header_table_id_list, do_test=False):
+    def evaluate(self, logits_lists, firstColumn_CLS_startPositionList, labels_lists, question_list, question_tokens, table_id_list, eachData_index, sql_list_groundTruth, tableData, column_queryList, column_tableidList, do_test=False):
         [
             sequence_labeling_predict, 
             select_agg_predict, 
             where_relation_predict, 
             where_conlumn_number_predict, 
-            type_logits_list, 
-            sel_num_logits_list, 
-            where_num_logits_list, 
+            sel_where_detemine_predict, 
+            select_number_predict, 
+            where_number_predict, 
             type_probs_list, 
-            op_logits_list
+            where_op_predict
             ] = logits_lists
         [
-            tag_labels_list, 
-            agg_labels_list, 
-            connection_labels_list, 
-            con_num_labels_list, 
-            type_labels_list, 
-            sel_num_labels_list, 
-            where_num_labels_list, 
-            op_labels_list
+            sequence_labeling_groudTruth, 
+            select_agg_groundTruth, 
+            where_relation_groundTruth, 
+            where_conlumn_number_groundTruth, 
+            sel_where_detemine_groundTruth, 
+            select_number_groundTruth, 
+            where_number_groundTruth, 
+            where_op_groundTruth
             ] = labels_lists
 
-        # print(tag_logits_list)
-        # agg_logits_list, 
-        # connection_logits_list, 
-        # con_num_logits_list, 
-        # type_logits_list, 
-        # sel_num_logits_list, 
-        # where_num_logits_list, 
-        # type_probs_list, 
-        # op_logits_list
-        # exit()
         f_valid = open("valid_detail.txt", 'w')
         # {"agg": [0], "cond_conn_op": 2, "sel": [1], "conds": [[3, 0, "11"], [6, 0, "11"]]}
-        sql_dict = {"agg": [], "cond_conn_op": None, "sel": [], "conds": []}
-        sql_list = []
+        sql_template_forPredict = {"agg": [], "cond_conn_op": None, "sel": [], "conds": []}
+        sql_finalPredict = []
         matched_num = 0
-        for i in range(len(sample_index_list)):
-            start_index = 0 if i == 0 else sample_index_list[i - 1]
-            end_index = sample_index_list[i]
-            sample_question = question_list[i]
-            sample_question_token = question_token_list[i]
-            sample_table_id = table_id_list[i]
-            if do_test is False:
-                sample_sql = correct_sql_list[i]
-            sample_tag_logits = sequence_labeling_predict[start_index: end_index]
-            sample_agg_logits = select_agg_predict[start_index: end_index]
-            sample_connection_logits = where_relation_predict[start_index: end_index]
+        for i in range(len(eachData_index)):
+            start_index = 0 if i == 0 else eachData_index[i - 1]
+            end_index = eachData_index[i]
+            eachQuestion = question_list[i]
+            eachQuestion_token = question_tokens[i]
+            eachtableID = table_id_list[i]
+            if do_test is False : eachSQL_groundTruth = sql_list_groundTruth[i]
+            eachSequence_LabelingPredict = sequence_labeling_predict[start_index: end_index]
+            eachSelect_aggPredict = select_agg_predict[start_index: end_index]
+            eachWhere_relationPredict = where_relation_predict[start_index: end_index]
             sample_con_num_logits = where_conlumn_number_predict[start_index: end_index]
-            sample_type_logits = type_logits_list[start_index: end_index]
-            sample_sel_num_logits = sel_num_logits_list[start_index: end_index]
-            sample_where_num_logits = where_num_logits_list[start_index: end_index]
-            sample_op_logits_list = op_logits_list[start_index: end_index]
+            sample_type_logits = sel_where_detemine_predict[start_index: end_index]
+            sample_sel_num_logits = select_number_predict[start_index: end_index]
+            sample_where_num_logits = where_number_predict[start_index: end_index]
+            sample_op_logits_list = where_op_predict[start_index: end_index]
 
-            cls_index = cls_index_list[start_index]
-            table_header_list = table_dict[sample_table_id]["header"]
-            table_type_list = table_dict[sample_table_id]["types"]
-            table_row_list = table_dict[sample_table_id]["rows"]
+            cls_index = firstColumn_CLS_startPositionList[start_index]
+            table_header_list = tableData[eachtableID]["header"]
+            table_type_list = tableData[eachtableID]["types"]
+            table_row_list = tableData[eachtableID]["rows"]
             col_dict = {i: [] for i in range(len(table_header_list))}
             for row in table_row_list:
                 for col, value in enumerate(row):
@@ -1542,12 +1528,12 @@ class Trainer:
                 where_prob = type_probs[1]
 
                 # sel
-                agg = sample_agg_logits[j]
+                agg = eachSelect_aggPredict[j]
                 sel_col = j
                 sel_prob_list.append({"prob": sel_prob, "type": col_type, "sel": sel_col, "agg": agg})
 
                 # where
-                tag_list = sample_tag_logits[j][1: cls_index - 1]
+                tag_list = eachSequence_LabelingPredict[j][1: cls_index - 1]
                 con_num = sample_con_num_logits[j]
                 col_op = sample_op_logits_list[j]
                 con_col = j
@@ -1560,7 +1546,7 @@ class Trainer:
                 question_tag_list = []
                 for i in range(len(tag_list)):
                     tag = tag_list[i]
-                    token = sample_question_token[i]
+                    token = eachQuestion_token[i]
                     token = token.replace("##", "")
                     if token == "[UNK]":
                         question_tag_list.extend([tag])
@@ -1578,7 +1564,7 @@ class Trainer:
                     else:
                         if previous_tag in [-1, 0]:
                             value_start_index_list.append(i)
-                        candidate_list[candidate_list_index][0].append(sample_question[i])  # 多了一个 cls
+                        candidate_list[candidate_list_index][0].append(eachQuestion[i])  # 多了一个 cls
                         candidate_list[candidate_list_index][1].append(question_tag_list[i])
                     previous_tag = current_tag
                 con_list = []
@@ -1594,7 +1580,7 @@ class Trainer:
                     col_values = col_dict[j]
                     op = col_op
                     candidate_value_set = set()
-                    new_value, longest_digit_num, longest_chinese_num = ValueOptimizer.find_longest_num(value_str, sample_question, value_start_index)
+                    new_value, longest_digit_num, longest_chinese_num = ValueOptimizer.find_longest_num(value_str, eachQuestion, value_start_index)
                     candidate_value_set.add(value_str)
                     candidate_value_set.add(new_value)
                     if longest_digit_num:
@@ -1648,34 +1634,34 @@ class Trainer:
                 connection = 0
             else:
                 where_cols = list(map(lambda x: x["cond"][0], where_prob_list[: where_num]))
-                real_connection_list = [sample_connection_logits[k] for k in where_cols]
+                real_connection_list = [eachWhere_relationPredict[k] for k in where_cols]
                 connection = max(real_connection_list, key=real_connection_list.count)
 
-            tmp_sql_dict = copy.deepcopy(sql_dict)
-            tmp_sql_dict["cond_conn_op"] = connection
+            sql_forPredict = copy.deepcopy(sql_template_forPredict)
+            sql_forPredict["cond_conn_op"] = connection
             for j in range(min(sel_num, len(sel_prob_list))):
-                tmp_sql_dict["agg"].append(sel_prob_list[j]["agg"])
-                tmp_sql_dict["sel"].append(sel_prob_list[j]["sel"])
+                sql_forPredict["agg"].append(sel_prob_list[j]["agg"])
+                sql_forPredict["sel"].append(sel_prob_list[j]["sel"])
             for j in range(min(where_num, len(where_prob_list))):
-                tmp_sql_dict["conds"].append(where_prob_list[j]["cond"])
-            sql_list.append(tmp_sql_dict)
+                sql_forPredict["conds"].append(where_prob_list[j]["cond"])
+            sql_finalPredict.append(sql_forPredict)
 
             if do_test is False:
-                if self.sql_match(tmp_sql_dict, sample_sql):
+                if self.sql_match(sql_forPredict, eachSQL_groundTruth):
                     matched_num += 1
                 else:
-                    f_valid.write("%s\n" % str(sample_question))
-                    f_valid.write("%s\n" % str(tmp_sql_dict))
-                    f_valid.write("%s\n" % str(sample_sql))
+                    f_valid.write("%s\n" % str(eachQuestion))
+                    f_valid.write("%s\n" % str(sql_forPredict))
+                    f_valid.write("%s\n" % str(eachSQL_groundTruth))
                     # f_valid.write("%s\n" % str(value_change_list))
-                    cols = set(map(lambda x: x[0], tmp_sql_dict["conds"])) | set(map(lambda x: x[0], sample_sql["conds"]))
+                    cols = set(map(lambda x: x[0], sql_forPredict["conds"])) | set(map(lambda x: x[0], eachSQL_groundTruth["conds"]))
                     for j, table_header in enumerate(table_header_list):
                         if j in cols:
                             f_valid.write("%d、%s\n" % (j, table_header))
                     f_valid.write("\n")
 
         if do_test is False:
-            logical_acc = matched_num / len(sample_index_list)
+            logical_acc = matched_num / len(eachData_index)
             print("logical_acc", logical_acc)
 
             op_sql_dict = {0: ">", 1: "<", 2: "==", 3: "!=", 4: "不选中"}
@@ -1693,35 +1679,35 @@ class Trainer:
             connection_true = []
             con_num_pred = []
             con_num_true = []
-            type_pred = type_logits_list
-            type_true = type_labels_list
-            sel_num_pred = sel_num_logits_list
-            sel_num_true = sel_num_labels_list
-            where_num_pred = where_num_logits_list
-            where_num_true = where_num_labels_list
+            type_pred = sel_where_detemine_predict
+            type_true = sel_where_detemine_groundTruth
+            sel_num_pred = select_number_predict
+            sel_num_true = select_number_groundTruth
+            where_num_pred = where_number_predict
+            where_num_true = where_number_groundTruth
             op_pred = []
             op_true = []
 
             for i, col_type in enumerate(type_true):
                 if col_type == 0: # sel
                     agg_pred.append(select_agg_predict[i])
-                    agg_true.append(agg_labels_list[i])
+                    agg_true.append(select_agg_groundTruth[i])
                 elif col_type == 1: # con
-                    cls_index = cls_index_list[i]
+                    cls_index = firstColumn_CLS_startPositionList[i]
                     tmp_tag_pred = sequence_labeling_predict[i][1: cls_index - 1] # 不取 cls 和 sep
-                    tmp_tag_true = tag_labels_list[i][1: cls_index - 1]
-                    question = header_question_list[i]
-                    table_id = header_table_id_list[i]
+                    tmp_tag_true = sequence_labeling_groudTruth[i][1: cls_index - 1]
+                    question = column_queryList[i]
+                    table_id = column_tableidList[i]
                     matched = 1 if tmp_tag_pred == tmp_tag_true else 0
                     tag_fully_matched.append(matched)
                     tag_pred.extend(tmp_tag_pred)
                     tag_true.extend(tmp_tag_true)
                     connection_pred.append(where_relation_predict[i])
-                    connection_true.append(connection_labels_list[i])
+                    connection_true.append(where_relation_groundTruth[i])
                     con_num_pred.append(where_conlumn_number_predict[i])
-                    con_num_true.append(con_num_labels_list[i])
-                    op_pred.append(op_logits_list[i])
-                    op_true.append(op_labels_list[i])
+                    con_num_true.append(where_conlumn_number_groundTruth[i])
+                    op_pred.append(where_op_predict[i])
+                    op_true.append(where_op_groundTruth[i])
 
             eval_result = ""
             eval_result += "TYPE\n" + self.detail_score(type_true, type_pred, num_labels=3, ignore_num=None) + "\n"
@@ -1739,15 +1725,15 @@ class Trainer:
 
         else:
             f_result = open("result.json", 'w')
-            for sql_dict in sql_list:
-                sql_dict_json = json.dumps(sql_dict, ensure_ascii=False)
-                f_result.write(sql_dict_json + '\n')
+            for each_sql_predict in sql_finalPredict:
+                sql_jsonFile = json.dumps(each_sql_predict, ensure_ascii=False)
+                f_result.write(sql_jsonFile + '\n')
             f_result.close()
 
     def train(self):
         if self.debug: self.epochs = 1
         # 加载 dataloader
-        train_iterator, valid_iterator, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_iterator, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict, valid_question_token_list, test_question_token_list = self.data_iterator()
+        train_iterator, valid_iterator, valid_question_list, valid_table_id_list, valid_eachData_index, valid_sql_list, valid_tableData, valid_column_queryList, valid_column_tableidList, test_iterator, test_question_list, test_table_id_list, test_eachData_index, test_tableData, valid_question_tokens, test_question_tokens = self.data_iterator()
         # 训练
         self.seed_everything()
         lr = 1e-5
@@ -1790,7 +1776,7 @@ class Trainer:
                     tag_labels = batch_data[8].to(self.device)
                     con_num_labels = batch_data[9].to(self.device)
                     type_labels = batch_data[10].to(self.device)
-                    cls_index_list = batch_data[11].to(self.device)
+                    firstColumn_CLS_startPositionList = batch_data[11].to(self.device)
                     header_masks = batch_data[12].to(self.device)
                     question_masks = batch_data[13].to(self.device)
                     subheader_cls_list = batch_data[14].to(self.device)
@@ -1801,7 +1787,7 @@ class Trainer:
                     value_masks = batch_data[19].to(self.device)
                 if torch.sum(sel_masks) == 0 or torch.sum(con_masks) == 0 or torch.sum(tag_masks) == 0: continue
                 train_dependencies = [tag_masks, sel_masks, con_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels, sel_num_labels, where_num_labels, op_labels]
-                loss = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks, subheader_cls_list, value_masks, cls_index_list, train_dependencies=train_dependencies)
+                loss = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks, subheader_cls_list, value_masks, firstColumn_CLS_startPositionList, train_dependencies=train_dependencies)
                 loss.backward()
                 if (i + 1) % accumulation_steps == 0:
                     optimizer.step()
@@ -1813,20 +1799,20 @@ class Trainer:
             select_agg_predict = []
             where_relation_predict = []
             where_conlumn_number_predict = []
-            type_logits_list = []
-            tag_labels_list = []
-            agg_labels_list = []
-            connection_labels_list = []
-            con_num_labels_list = []
-            type_labels_list = []
-            cls_index_list = []
-            sel_num_labels_list = []
-            where_num_labels_list = []
-            sel_num_logits_list = []
-            where_num_logits_list = []
+            sel_where_detemine_predict = []
+            sequence_labeling_groudTruth = []
+            select_agg_groundTruth = []
+            where_relation_groundTruth = []
+            where_conlumn_number_groundTruth = []
+            sel_where_detemine_groundTruth = []
+            firstColumn_CLS_startPositionList = []
+            select_number_groundTruth = []
+            where_number_groundTruth = []
+            select_number_predict = []
+            where_number_predict = []
             type_probs_list = []
-            op_labels_list = []
-            op_logits_list = []
+            where_op_groundTruth = []
+            where_op_predict = []
             for j, valid_batch_data in enumerate(valid_iterator):
                 if torch.cuda.is_available():
                     input_ids = valid_batch_data[0].to(self.device)
@@ -1886,24 +1872,24 @@ class Trainer:
                 select_agg_predict.extend(agg_logits)
                 where_relation_predict.extend(connection_logits)
                 where_conlumn_number_predict.extend(con_num_logits)
-                type_logits_list.extend(type_logits)
-                tag_labels_list.extend(tag_labels)
-                agg_labels_list.extend(agg_labels)
-                connection_labels_list.extend(connection_labels)
-                con_num_labels_list.extend(con_num_labels)
-                type_labels_list.extend(type_labels)
-                cls_index_list.extend(cls_indices)
-                sel_num_labels_list.extend(sel_num_labels)
-                where_num_labels_list.extend(where_num_labels)
-                sel_num_logits_list.extend(sel_num_logits)
-                where_num_logits_list.extend(where_num_logits)
+                sel_where_detemine_predict.extend(type_logits)
+                sequence_labeling_groudTruth.extend(tag_labels)
+                select_agg_groundTruth.extend(agg_labels)
+                where_relation_groundTruth.extend(connection_labels)
+                where_conlumn_number_groundTruth.extend(con_num_labels)
+                sel_where_detemine_groundTruth.extend(type_labels)
+                firstColumn_CLS_startPositionList.extend(cls_indices)
+                select_number_groundTruth.extend(sel_num_labels)
+                where_number_groundTruth.extend(where_num_labels)
+                select_number_predict.extend(sel_num_logits)
+                where_number_predict.extend(where_num_logits)
                 type_probs_list.extend(type_probs)
-                op_labels_list.extend(op_labels)
-                op_logits_list.extend(op_logits)
+                where_op_groundTruth.extend(op_labels)
+                where_op_predict.extend(op_logits)
 
-            logits_lists = [sequence_labeling_predict, select_agg_predict, where_relation_predict, where_conlumn_number_predict, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
-            labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list]
-            eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_question_token_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list)
+            logits_lists = [sequence_labeling_predict, select_agg_predict, where_relation_predict, where_conlumn_number_predict, sel_where_detemine_predict, select_number_predict, where_number_predict, type_probs_list, where_op_predict]
+            labels_lists = [sequence_labeling_groudTruth, select_agg_groundTruth, where_relation_groundTruth, where_conlumn_number_groundTruth, sel_where_detemine_groundTruth, select_number_groundTruth, where_number_groundTruth, where_op_groundTruth]
+            eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, firstColumn_CLS_startPositionList, labels_lists, valid_question_list, valid_question_tokens, valid_table_id_list, valid_eachData_index, valid_sql_list, valid_tableData, valid_column_queryList, valid_column_tableidList)
 
             score = logical_acc
             # print("epoch: %d duration: %d min \n" % (epoch + 1, int((time.time() - train_start_time) / 60)))
@@ -1933,7 +1919,7 @@ class Trainer:
 
     def test(self, do_evaluate=True, do_test=True):
         print('load data')
-        train_iterator, valid_iterator, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, test_iterator, test_question_list, test_table_id_list, test_sample_index_list, test_table_dict, valid_question_token_list, test_question_token_list = self.data_iterator()
+        train_iterator, valid_iterator, valid_question_list, valid_table_id_list, valid_eachData_index, valid_sql_list, valid_tableData, valid_column_queryList, valid_column_tableidList, test_iterator, test_question_list, test_table_id_list, test_eachData_index, test_tableData, valid_question_tokens, test_question_tokens = self.data_iterator()
         self.seed_everything()
         model = BertNeuralNet(self.bert_config)
         model.load_state_dict(torch.load("./my_model.bin"))            
@@ -1946,20 +1932,20 @@ class Trainer:
             select_agg_predict = []
             where_relation_predict = []
             where_conlumn_number_predict = []
-            type_logits_list = []
-            tag_labels_list = []
-            agg_labels_list = []
-            connection_labels_list = []
-            con_num_labels_list = []
-            type_labels_list = []
-            cls_index_list = []
-            sel_num_labels_list = []
-            where_num_labels_list = []
-            sel_num_logits_list = []
-            where_num_logits_list = []
+            sel_where_detemine_predict = []
+            sequence_labeling_groudTruth = []
+            select_agg_groundTruth = []
+            where_relation_groundTruth = []
+            where_conlumn_number_groundTruth = []
+            sel_where_detemine_groundTruth = []
+            firstColumn_CLS_startPositionList = []
+            select_number_groundTruth = []
+            where_number_groundTruth = []
+            select_number_predict = []
+            where_number_predict = []
             type_probs_list = []
-            op_labels_list = []
-            op_logits_list = []
+            where_op_groundTruth = []
+            where_op_predict = []
             for j, valid_batch_data in enumerate(valid_iterator):
                 if torch.cuda.is_available():
                     print('validbatchIndex:',j)
@@ -2021,24 +2007,24 @@ class Trainer:
                 select_agg_predict.extend(agg_logits)
                 where_relation_predict.extend(connection_logits)
                 where_conlumn_number_predict.extend(con_num_logits)
-                type_logits_list.extend(type_logits)
-                tag_labels_list.extend(tag_labels)
-                agg_labels_list.extend(agg_labels)
-                connection_labels_list.extend(connection_labels)
-                con_num_labels_list.extend(con_num_labels)
-                type_labels_list.extend(type_labels)
-                cls_index_list.extend(cls_indices)
-                sel_num_labels_list.extend(sel_num_labels)
-                where_num_labels_list.extend(where_num_labels)
-                sel_num_logits_list.extend(sel_num_logits)
-                where_num_logits_list.extend(where_num_logits)
+                sel_where_detemine_predict.extend(type_logits)
+                sequence_labeling_groudTruth.extend(tag_labels)
+                select_agg_groundTruth.extend(agg_labels)
+                where_relation_groundTruth.extend(connection_labels)
+                where_conlumn_number_groundTruth.extend(con_num_labels)
+                sel_where_detemine_groundTruth.extend(type_labels)
+                firstColumn_CLS_startPositionList.extend(cls_indices)
+                select_number_groundTruth.extend(sel_num_labels)
+                where_number_groundTruth.extend(where_num_labels)
+                select_number_predict.extend(sel_num_logits)
+                where_number_predict.extend(where_num_logits)
                 type_probs_list.extend(type_probs)
-                op_labels_list.extend(op_labels)
-                op_logits_list.extend(op_logits)
+                where_op_groundTruth.extend(op_labels)
+                where_op_predict.extend(op_logits)
 
-            logits_lists = [sequence_labeling_predict, select_agg_predict, where_relation_predict, where_conlumn_number_predict, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
-            labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list]
-            eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_question_token_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list)
+            logits_lists = [sequence_labeling_predict, select_agg_predict, where_relation_predict, where_conlumn_number_predict, sel_where_detemine_predict, select_number_predict, where_number_predict, type_probs_list, where_op_predict]
+            labels_lists = [sequence_labeling_groudTruth, select_agg_groundTruth, where_relation_groundTruth, where_conlumn_number_groundTruth, sel_where_detemine_groundTruth, select_number_groundTruth, where_number_groundTruth, where_op_groundTruth]
+            eval_result, tag_acc, logical_acc = self.evaluate(logits_lists, firstColumn_CLS_startPositionList, labels_lists, valid_question_list, valid_question_tokens, valid_table_id_list, valid_eachData_index, valid_sql_list, valid_tableData, valid_column_queryList, valid_column_tableidList)
             print(eval_result)
 
         if do_test:
@@ -2047,12 +2033,12 @@ class Trainer:
             select_agg_predict = []
             where_relation_predict = []
             where_conlumn_number_predict = []
-            type_logits_list = []
-            cls_index_list = []
-            sel_num_logits_list = []
-            where_num_logits_list = []
+            sel_where_detemine_predict = []
+            firstColumn_CLS_startPositionList = []
+            select_number_predict = []
+            where_number_predict = []
             type_probs_list = []
-            op_logits_list = []
+            where_op_predict = []
             for j, test_batch_data in enumerate(test_iterator):
                 print('testbatchIndex:',j)
 
@@ -2081,17 +2067,17 @@ class Trainer:
                 select_agg_predict.extend(agg_logits)
                 where_relation_predict.extend(connection_logits)
                 where_conlumn_number_predict.extend(con_num_logits)
-                type_logits_list.extend(type_logits)
-                cls_index_list.extend(cls_indices)
-                sel_num_logits_list.extend(sel_num_logits)
-                where_num_logits_list.extend(where_num_logits)
+                sel_where_detemine_predict.extend(type_logits)
+                firstColumn_CLS_startPositionList.extend(cls_indices)
+                select_number_predict.extend(sel_num_logits)
+                where_number_predict.extend(where_num_logits)
                 type_probs_list.extend(type_probs)
-                op_logits_list.extend(op_logits)
+                where_op_predict.extend(op_logits)
 
-            logits_lists = [sequence_labeling_predict, select_agg_predict, where_relation_predict, where_conlumn_number_predict, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
+            logits_lists = [sequence_labeling_predict, select_agg_predict, where_relation_predict, where_conlumn_number_predict, sel_where_detemine_predict, select_number_predict, where_number_predict, type_probs_list, where_op_predict]
             labels_lists = [[] for _ in range(8)]
-            test_sql_list, test_header_question_list, test_header_table_id_list = [], [], []
-            self.evaluate(logits_lists, cls_index_list, labels_lists, test_question_list, test_question_token_list, test_table_id_list, test_sample_index_list, test_sql_list, test_table_dict, test_header_question_list, test_header_table_id_list, do_test=True)
+            test_sql_list, test_column_queryList, test_column_tableidList = [], [], []
+            self.evaluate(logits_lists, firstColumn_CLS_startPositionList, labels_lists, test_question_list, test_question_tokens, test_table_id_list, test_eachData_index, test_sql_list, test_tableData, test_column_queryList, test_column_tableidList, do_test=True)
 
 
 if __name__ == "__main__":
