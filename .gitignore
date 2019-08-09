@@ -5,10 +5,17 @@
 *.pyc
 *.zip
 *.db
+*.bin
+*.zip
+ossutil64
+
 saved_model/
 data/
 img/
 result/
+submit/
+0804/
+model/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

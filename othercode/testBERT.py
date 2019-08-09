@@ -15,7 +15,7 @@ from pytorch_pretrained_bert import BertConfig
 from pytorch_pretrained_bert.modeling import BertPreTrainedModel
 import json
 from sklearn.metrics import *
-from train import QuestionMatcher,ValueOptimizer,BertNeuralNet
+from trainBERT import QuestionMatcher,ValueOptimizer,BertNeuralNet
 
 class Predictor:
     def __init__(self, data_dir, model_name, epochs=1, batch_size=64, base_batch_size=32, max_len=120, part=1., seed=1234, debug_mode=False):

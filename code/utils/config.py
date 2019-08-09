@@ -13,7 +13,7 @@ def get_train_logger():
     logger.addHandler(handler_stream)
 
     #日志文件
-    handler_file = logging.FileHandler('train.log')
+    handler_file = logging.FileHandler('./log_bad_cases/nl2sql.log')
     formatter = logging.Formatter('%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s')
     handler_file.setFormatter(formatter)
     logger.addHandler(handler_file)
@@ -26,17 +26,8 @@ def timer(msg):
     yield
     elapsed_time = time.time() - t0
     print(f'[{msg}] done in {elapsed_time / 60:.2f} min.')
-# with timer('标注数据'):
-#     #V,v,NPC = voteforLabels(G,300)
-#     print("a")
-
 
 
 if __name__ == '__main__':
-    # with timer('标注数据'):
-    #     #V,v,NPC = voteforLabels(G,300)
-    #     print("a")
     logger = get_train_logger()
-    for i in range(10):
-        # print ('Epoch %d'%(i+1))
-        logger.info('starting epoch {}'.format(i))
+

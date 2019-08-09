@@ -1,31 +1,18 @@
-## version0630 
+# 环境：
+## python 3.7
+## pytorch 1.1.0   
+## cuda 10
+## 其他python依赖可以参考requirments.txt
 
-*  官方baseline,sqlnet_condition_column_cat_attention_300dimtanh
-**Dev Logic Form Accuracy: 0.363, Execution Accuracy: 0.472  0.75113**
-*   官方baseline,sqlnet_condition_column_cat_attention_100dimtanh
-Dev Logic Form Accuracy: 0.324, Execution Accuracy: 0.446   0.72133
-*   官方baseline,sqlnet_condition_column_cat_attention_300dim
-**Dev Logic Form Accuracy: 0.361, Execution Accuracy: 0.484   0.75159**
-*   官方baseline,sqlnet_condition_column_cat_attention_100dim
-Dev Logic Form Accuracy: 0.317, Execution Accuracy: 0.443   0.7099
+# 文件说明：
+## model/       下放了两个哈工大的预训练模型，两个比赛模型，online的是线上提交的模型，另一个是今早上（08-09）重新跑的模型， 
+## submit/      存放了对应的预测文件
 
-## version0621
-官方baseline , 尝试跑通 + 重构(bz=16)
+# 运行：
+## 切到 code/ 文件夹下 
+## 训练： python train.py   
+## 预测： python test.py 
 
-Dev Logic Form Accuracy: 0.312, Execution Accuracy: 0.439 onLine: 0.3694
+## 两个代码都已经在本地调试通过，具体可以查看对应log日志（./code/log_bad_cases/nl2sql.log）
 
-
-## Experiment analysis
-
-We found the main challenges of this datasets containing poor condition value prediction, select column and condition column not mentioned in NL question, inconsistent condition relationship representation between NL question and SQL, etc. All these challenges could not be solved by existing baseline and SOTA models.
-
-Correspondingly, this baseline model achieves only 77% accuracy on condition column and 62% accuracy on condition value respectively even on the training set, and the overall logic form is only around 50% as well, indicating these problems are challenging for contestants to solve.
-
-<div align="middle"><img src="https://github.com/ZhuiyiTechnology/nl2sql_baseline/blob/master/img/trainset_behavior.png"width="80%" ></div>
-
-## Related resources:
-https://github.com/salesforce/WikiSQL
-
-https://yale-lily.github.io/spider
-
-<a href="https://arxiv.org/pdf/1804.08338.pdf">Semantic Parsing with Syntax- and Table-Aware SQL Generation</a>
+两个文件基本无区别，只是不是太想写命令行参数..（test应该会高于线上0806的成绩，因为当时提交的时候模型没收敛）
