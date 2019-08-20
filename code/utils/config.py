@@ -1,11 +1,12 @@
 #coding=utf-8
 
-from contextlib import contextmanager
+import os
 import time
 import logging
 import sys
+from contextlib import contextmanager
 
-def get_train_logger():
+def get_train_logger(log_path):
     logger = logging.getLogger('train-{}'.format(__name__))
     logger.setLevel(logging.INFO)
     #控制台
@@ -13,7 +14,7 @@ def get_train_logger():
     logger.addHandler(handler_stream)
 
     #日志文件
-    handler_file = logging.FileHandler('./log_bad_cases/nl2sql.log')
+    handler_file = logging.FileHandler(log_path)
     formatter = logging.Formatter('%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s')
     handler_file.setFormatter(formatter)
     logger.addHandler(handler_file)

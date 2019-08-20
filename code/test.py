@@ -2,25 +2,31 @@ import os
 import random
 import copy
 import torch
-from torch import nn
-from torch.utils import data
-from torch.nn import functional as F
-import numpy as np
+import json
 import time
 import math
 import gc
 import re
+import argparse
+
+import numpy as np
+from torch import nn
+from torch.utils import data
+from torch.nn import functional as F
 from pytorch_pretrained_bert import BertTokenizer, BertAdam, BertModel
 from pytorch_pretrained_bert import BertConfig
 from pytorch_pretrained_bert.modeling import BertPreTrainedModel
-import json
-from utils.config import get_train_logger,timer
+
+from utils.config import get_train_logger, timer
 from utils.Evaluate import Evaluate
 from modules.regex_engine import RegexEngine
 from modules.schema_linking import SchemaLiking
 from modules.bertnl2sql import BertNL2SQL
-logger = get_train_logger()
-class InputFeaturesLabelsForTensor():
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+
+class InputFeaturesLabelsForTensor:
     def __init__(self):
         self.connect_inputIDsList = []
         self.sequence_labeling_inputMaskList = []
@@ -49,6 +55,7 @@ class InputFeaturesLabelsForTensor():
         self.where_op_labelList = []
         self.value_masks = []
         self.question_token_list = []
+
 
 class InputFeaturesLabelsForProcess():
     def __init__(self):
@@ -80,10 +87,14 @@ class InputFeaturesLabelsForProcess():
         self.value_masks = []
         self.question_token_list = []
 
+
 class NL2SQL:
-    def __init__(self, data_dir, epochs=1, batch_size=64, step_batch_size=32, max_len=120, seed=1234, debug =False):
+    def __init__(self, config, epochs=1, batch_size=64, step_batch_size=32, max_len=120, seed=1234, debug=False):
         self.device = torch.device('cuda')
-        self.data_dir = data_dir
+        self.config = config
+        self.data_dir = config.data_dir
+        self.model_dir = config.model_dir
+        self.log_dir = config.log_dir
         self.debug = debug
         self.seed = seed
         self.seed_everything()
@@ -101,19 +112,20 @@ class NL2SQL:
             self.valid_table_path = os.path.join(self.data_dir, "val/val.tables.json")
             self.test_data_path = os.path.join(self.data_dir, "test/test.json")
             self.test_table_path = os.path.join(self.data_dir, "test/test.tables.json")
-            self.bert_model_path = os.path.join(self.data_dir,"../model/chinese_wwm_ext_pytorch/")
-            self.pytorch_bert_path =  os.path.join(self.data_dir,"../model/chinese_wwm_ext_pytorch/pytorch_model.bin")
-            self.bert_config = BertConfig(os.path.join(self.data_dir,"../model/chinese_wwm_ext_pytorch/bert_config.json"))
+            self.bert_model_path = os.path.join(self.model_dir, "chinese_wwm_ext_pytorch/")
+            self.pytorch_bert_path = os.path.join(self.model_dir, "chinese_wwm_ext_pytorch/pytorch_model.bin")
+            self.bert_config = BertConfig(os.path.join(self.model_dir, "chinese_wwm_ext_pytorch/bert_config.json"))
 
     def read_query(self, query_path):
-        '''
+        """
         query_path 是带有用户问题的json 文件路径
-        '''
+        """
         data = []
-        with open(query_path, "r") as data_file:
+        with open(query_path, "r", encoding="utf-8") as data_file:
             for line_index, each_line in enumerate(data_file):
                 # debug 只读100行即可
-                if self.debug and line_index == 100: break
+                if self.debug and line_index == 100:
+                    break
                 data.append(json.loads(each_line))
         logger.info('dataNumber:{}'.format(len(data)))
         return data
@@ -123,8 +135,8 @@ class NL2SQL:
         table_path 是对应于问题的存有完整数据库的json文件
         '''
         table = {}
-        with open(table_path, "r") as table_file:
-            for line_index,each_line in enumerate(table_file):
+        with open(table_path, "r", encoding="utf-8") as table_file:
+            for line_index, each_line in enumerate(table_file):
                 each_table = json.loads(each_line)
                 table[each_table['id']] = each_table
         return table
@@ -147,8 +159,6 @@ class NL2SQL:
         for i in range(start_index, start_index + mask_len):
             mask[i] = 1
         return mask
-
-    
 
     def process_sample(self, query, table, bert_tokenizer):
         question = query["question"]
@@ -187,7 +197,7 @@ class NL2SQL:
         select_clause_dict = {column: agg_function for column, agg_function in zip(select_column, select_agg)}
         duplicate_indices = SchemaLiking.duplicate_relative_index(where_conditions)
         condition_dict = {}
-        for [where_col, where_op, where_value], duplicate_index in zip(where_conditions, duplicate_indices):  
+        for [where_col, where_op, where_value], duplicate_index in zip(where_conditions, duplicate_indices):
             where_value = where_value.strip()
             matched_value, matched_index = SchemaLiking.match_value(question, where_value, duplicate_index)
             '''
@@ -195,7 +205,7 @@ class NL2SQL:
             matched_value           大黄蜂
             match_index             8
             '''
-            
+
             if len(matched_value) > 0:
                 if where_col in condition_dict:
                     condition_dict[where_col].append([where_op, matched_value, matched_index])
@@ -238,7 +248,8 @@ class NL2SQL:
             '''
             each_column_ = bert_tokenizer.tokenize(each_column)
             each_column_inputIDs = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + each_column_ + ["[SEP]"])
-            each_column_inputMask = self.create_mask(max_len=self.max_len, start_index=len(question_inputIDs) + 1, mask_len=len(each_column_))
+            each_column_inputMask = self.create_mask(max_len=self.max_len, start_index=len(question_inputIDs) + 1,
+                                                     mask_len=len(each_column_))
 
             connect_inputIDs = question_inputIDs + each_column_inputIDs
             # question + column 后面再接的column对应的CLS的索引
@@ -258,7 +269,8 @@ class NL2SQL:
                     break
             # nextColumn_inputMask_len 要mask掉的后面的列的长度
             nextColumn_inputMask_len = len(connect_inputIDs) - nextColumn_startPosition - 1
-            nextColumn_inputMask = self.create_mask(max_len= self.max_len,start_index =nextColumn_startPosition,mask_len = nextColumn_inputMask_len)
+            nextColumn_inputMask = self.create_mask(max_len=self.max_len, start_index=nextColumn_startPosition,
+                                                    mask_len=nextColumn_inputMask_len)
             '''
             nextColumn_inputMask 
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -278,15 +290,16 @@ class NL2SQL:
                 else:
                     break
             value_inputMask_len = len(connect_inputIDs) - value_startPosition - 1
-            value_inputMask = self.create_mask(max_len=self.max_len, start_index=value_startPosition, mask_len=value_inputMask_len)
+            value_inputMask = self.create_mask(max_len=self.max_len, start_index=value_startPosition,
+                                               mask_len=value_inputMask_len)
             # 此时connect_inputIDs 相当于 CLS + query+ SEP +column1+ SEP+ nextcolumn1 +SEP + nextcolumn2+ SEP + value1 + SEP
             # value 对应的是数据库里当前header 下面的全部的value
             # attention_mask 是 对当前是connet_inputIDs 做mask            
             attention_mask = self.create_mask(max_len=self.max_len, start_index=0, mask_len=len(connect_inputIDs))
             # padding 
-            connect_inputIDs = connect_inputIDs + [0]*(self.max_len - len(connect_inputIDs))
+            connect_inputIDs = connect_inputIDs + [0] * (self.max_len - len(connect_inputIDs))
 
-            sequence_labeling_label = [0]*len(connect_inputIDs) 
+            sequence_labeling_label = [0] * len(connect_inputIDs)
             select_column_mask, where_conlumn_inputMask, type_mask = 0, 0, 1
             # TODO op_label 一直都是2是不是有问题？
             where_relation_label, select_agg_label, where_conlumn_number_label, op_label = 0, 0, 0, 2
@@ -296,22 +309,25 @@ class NL2SQL:
             '''
             if index_header in condition_dict:
                 # TODO 这地方是不是可以优化一下
-                if list(map(lambda x: x[0], where_conditions)).count(index_header) != len(condition_dict[index_header]): continue
+                if list(map(lambda x: x[0], where_conditions)).count(index_header) != len(
+                        condition_dict[index_header]): continue
                 conlumn_condition_list = condition_dict[index_header]
                 for [conlumn_condition_op, conlumn_condition_value, conlumn_condition_index] in conlumn_condition_list:
                     value_startposition_inQuestion = conlumn_condition_index
                     # end_position : 8+len('大黄蜂') -1 = 10
-                    value_endposition_inQuestion = conlumn_condition_index + len(conlumn_condition_value) -1
+                    value_endposition_inQuestion = conlumn_condition_index + len(conlumn_condition_value) - 1
                     # 处理了一下UNK
-                    value_startposition_forLabeling = question_UNK_position[value_startposition_inQuestion] + 1     # cls
-                    value_endposition_forLabeling = question_UNK_position[value_endposition_inQuestion] +1 +1       # cls sep
+                    value_startposition_forLabeling = question_UNK_position[value_startposition_inQuestion] + 1  # cls
+                    value_endposition_forLabeling = question_UNK_position[
+                                                        value_endposition_inQuestion] + 1 + 1  # cls sep
                     # 序列标注将问题question中value对应的部分标注成1
-                    sequence_labeling_label[value_startposition_forLabeling:value_endposition_forLabeling] = [1] * (value_endposition_forLabeling - value_startposition_forLabeling)
+                    sequence_labeling_label[value_startposition_forLabeling:value_endposition_forLabeling] = [1] * (
+                            value_endposition_forLabeling - value_startposition_forLabeling)
                     # TODO 序列标注inputID 是问题中的value ,inpustMask是整个问题？ 
                 sequence_labeling_inputMask = [0] + [1] * len(question_) + [0] * (self.max_len - len(question_) - 1)
                 where_conlumn_inputMask = 1
                 where_relation_label = where_relation
-                where_conlumn_number_label = min(len(conlumn_condition_list), 3)  
+                where_conlumn_number_label = min(len(conlumn_condition_list), 3)
                 type_label = 1
             elif index_header in select_clause_dict:
                 sequence_labeling_inputMask = [0] * self.max_len
@@ -349,8 +365,6 @@ class NL2SQL:
             inputFeaturesLabelsForProcess.where_op_label.append(op_label)
             inputFeaturesLabelsForProcess.value_masks.append(value_inputMask)
         return inputFeaturesLabelsForProcess, question_
-
-
 
     def data_process(self, sample, table_dict, bert_tokenizer):
         question = sample["question"]
@@ -434,7 +448,8 @@ class NL2SQL:
             value_set = col_dict[header]
             header_tokens = bert_tokenizer.tokenize(header)
             header_ids = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + header_tokens + ["[SEP]"])
-            header_mask = self.create_mask(max_len=self.max_len, start_index=len(question_ids) + 1, mask_len=len(header_tokens))
+            header_mask = self.create_mask(max_len=self.max_len, start_index=len(question_ids) + 1,
+                                           mask_len=len(header_tokens))
 
             conc_ids = question_ids + header_ids
             subheader_cls_index = len(conc_ids)
@@ -451,7 +466,8 @@ class NL2SQL:
                 else:
                     break
             subheader_mask_len = len(conc_ids) - subheader_start_index - 1
-            subheader_mask = self.create_mask(max_len=self.max_len, start_index=subheader_start_index, mask_len=subheader_mask_len)
+            subheader_mask = self.create_mask(max_len=self.max_len, start_index=subheader_start_index,
+                                              mask_len=subheader_mask_len)
             # attention_mask = self.create_mask(max_len=self.max_len, start_index=0, mask_len=len(conc_ids))
             # conc_ids = conc_ids + [0] * (self.max_len - len(conc_ids))
 
@@ -483,8 +499,10 @@ class NL2SQL:
                     value_char_start_index = index
                     value_char_end_index = index + len(value) - 1
                     value_id_start_index = question_char_mapping[value_char_start_index] + 1
-                    value_id_end_index = question_char_mapping[value_char_end_index] + 1 + 1    # 一个1是cls，一个1是end_index回缩一格
-                    tag_ids[value_id_start_index: value_id_end_index] = [1] * (value_id_end_index - value_id_start_index)
+                    value_id_end_index = question_char_mapping[
+                                             value_char_end_index] + 1 + 1  # 一个1是cls，一个1是end_index回缩一格
+                    tag_ids[value_id_start_index: value_id_end_index] = [1] * (
+                            value_id_end_index - value_id_start_index)
                 tag_mask = [0] + [1] * len(question_tokens) + [0] * (self.max_len - len(question_tokens) - 1)
                 con_mask = 1
                 connection_id = connection
@@ -524,8 +542,6 @@ class NL2SQL:
 
         return tag_masks, sel_masks, con_masks, type_masks, attention_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels, cls_index_list, conc_tokens, header_question_list, header_table_id_list, header_masks, question_masks, subheader_cls_list, subheader_masks, sel_num_labels, where_num_labels, op_labels, value_masks, question_tokens
 
- 
-
     def process_sample_test(self, sample, tableData, bert_tokenizer):
 
         # 相关变量的含义参见上面 data_process
@@ -553,7 +569,8 @@ class NL2SQL:
             value_set = col_dict[header]
             header_tokens = bert_tokenizer.tokenize(header)
             header_ids = bert_tokenizer.convert_tokens_to_ids(["[CLS]"] + header_tokens + ["[SEP]"])
-            header_mask = self.create_mask(max_len=self.max_len, start_index=len(question_ids) + 1, mask_len=len(header_tokens))
+            header_mask = self.create_mask(max_len=self.max_len, start_index=len(question_ids) + 1,
+                                           mask_len=len(header_tokens))
 
             connect_inputIDs = question_ids + header_ids
             subheader_cls_index = len(connect_inputIDs)
@@ -570,7 +587,8 @@ class NL2SQL:
                 else:
                     break
             subheader_mask_len = len(connect_inputIDs) - subheader_start_index - 1
-            subheader_mask = self.create_mask(max_len=self.max_len, start_index=subheader_start_index, mask_len=subheader_mask_len)
+            subheader_mask = self.create_mask(max_len=self.max_len, start_index=subheader_start_index,
+                                              mask_len=subheader_mask_len)
 
             value_cls_index = len(connect_inputIDs)
             value_start_index = len(connect_inputIDs) + 1
@@ -597,12 +615,12 @@ class NL2SQL:
             inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition.append(subheader_cls_index)
             inputFeaturesLabelsForProcess.nextColumn_inputMask.append(subheader_mask)
             inputFeaturesLabelsForProcess.value_masks.append(value_mask)
-        inputFeaturesLabelsForProcess.sel_where_detemine_inputMask = [1] * len(inputFeaturesLabelsForProcess.connect_inputIDs)
-
+        inputFeaturesLabelsForProcess.sel_where_detemine_inputMask = [1] * len(
+            inputFeaturesLabelsForProcess.connect_inputIDs)
 
         return inputFeaturesLabelsForProcess, question_tokens
 
-    def data_iterator(self,mode = 'train'):
+    def data_iterator(self, mode='train'):
         # train: 41522 val: 4396 test: 4086
         if mode == 'train':
             logger.info("Loading data, the mode is \"train\", Loading train_set and valid_set")
@@ -771,7 +789,7 @@ class NL2SQL:
             train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.step_batch_size, shuffle=True)
             valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=self.step_batch_size, shuffle=False)
             # 返回训练数据
-            return train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list,valid_question_token_list
+            return train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, valid_question_token_list
         elif mode == "test":
             logger.info("Loading data, the mode is \"test\", Loading test_set")
             test_data_list = self.read_query(self.test_data_path)
@@ -781,31 +799,41 @@ class NL2SQL:
             TestFeaturesLabels = InputFeaturesLabelsForTensor()
 
             for sample in test_data_list:
-                inputFeaturesLabelsForProcess,test_question_tokens = self.process_sample_test(sample, test_tableData, bert_tokenizer)
+                inputFeaturesLabelsForProcess, test_question_tokens = self.process_sample_test(sample, test_tableData,
+                                                                                               bert_tokenizer)
                 TestFeaturesLabels.attention_inputMaskList.extend(inputFeaturesLabelsForProcess.attention_inputMask)
-                TestFeaturesLabels.firstColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
+                TestFeaturesLabels.firstColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
                 TestFeaturesLabels.connect_inputIDsList.extend(inputFeaturesLabelsForProcess.connect_inputIDs)
                 TestFeaturesLabels.each_column_inputMaskList.extend(inputFeaturesLabelsForProcess.each_column_inputMask)
                 TestFeaturesLabels.question_masks.extend(inputFeaturesLabelsForProcess.question_masks)
-                TestFeaturesLabels.nextColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
+                TestFeaturesLabels.nextColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
                 TestFeaturesLabels.nextColumn_inputMaskList.extend(inputFeaturesLabelsForProcess.nextColumn_inputMask)
                 TestFeaturesLabels.value_masks.extend(inputFeaturesLabelsForProcess.value_masks)
-                TestFeaturesLabels.sel_where_detemine_inputMaskList.extend(inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
+                TestFeaturesLabels.sel_where_detemine_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
                 TestFeaturesLabels.question_token_list.append(test_question_tokens)
                 TestFeaturesLabels.eachData_indexList.append(len(TestFeaturesLabels.connect_inputIDsList))
                 TestFeaturesLabels.question_list.append(sample["question"].strip().replace(" ", ""))
                 TestFeaturesLabels.table_id_list.append(sample["table_id"])
 
             test_dataset = data.TensorDataset(torch.tensor(TestFeaturesLabels.connect_inputIDsList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.attention_inputMaskList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.firstColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.each_column_inputMaskList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.question_masks, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.nextColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.nextColumn_inputMaskList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.value_masks, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.sel_where_detemine_inputMaskList, dtype=torch.long),
-                                            )
+                                              torch.tensor(TestFeaturesLabels.attention_inputMaskList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.firstColumn_CLS_startPositionList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.each_column_inputMaskList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.question_masks, dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.nextColumn_CLS_startPositionList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.nextColumn_inputMaskList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.value_masks, dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.sel_where_detemine_inputMaskList,
+                                                           dtype=torch.long),
+                                              )
 
             test_iterator = torch.utils.data.DataLoader(test_dataset, batch_size=self.step_batch_size, shuffle=False)
 
@@ -820,24 +848,35 @@ class NL2SQL:
             ValidFeaturesLabels = InputFeaturesLabelsForTensor()
 
             for sample in valid_data_list:
-                inputFeaturesLabelsForProcess, valid_question_tokens = self.process_sample(sample, valid_tableData, bert_tokenizer)
-                ValidFeaturesLabels.sequence_labeling_inputMaskList.extend(inputFeaturesLabelsForProcess.sequence_labeling_inputMask)
-                ValidFeaturesLabels.select_column_inputMaskList.extend(inputFeaturesLabelsForProcess.select_column_inputMask)
-                ValidFeaturesLabels.where_conlumn_inputMaskList.extend(inputFeaturesLabelsForProcess.where_conlumn_inputMask)
-                ValidFeaturesLabels.sel_where_detemine_inputMaskList.extend(inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
+                inputFeaturesLabelsForProcess, valid_question_tokens = self.process_sample(sample, valid_tableData,
+                                                                                           bert_tokenizer)
+                ValidFeaturesLabels.sequence_labeling_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sequence_labeling_inputMask)
+                ValidFeaturesLabels.select_column_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.select_column_inputMask)
+                ValidFeaturesLabels.where_conlumn_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.where_conlumn_inputMask)
+                ValidFeaturesLabels.sel_where_detemine_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
                 ValidFeaturesLabels.attention_inputMaskList.extend(inputFeaturesLabelsForProcess.attention_inputMask)
                 ValidFeaturesLabels.where_relation_labelList.extend(inputFeaturesLabelsForProcess.where_relation_label)
                 ValidFeaturesLabels.select_agg_labelList.extend(inputFeaturesLabelsForProcess.select_agg_label)
-                ValidFeaturesLabels.sequence_labeling_labelList.extend(inputFeaturesLabelsForProcess.sequence_labeling_label)
-                ValidFeaturesLabels.where_column_number_labelList.extend(inputFeaturesLabelsForProcess.where_column_number_label)
-                ValidFeaturesLabels.sel_where_detemine_labellist.extend(inputFeaturesLabelsForProcess.sel_where_detemine_label)
-                ValidFeaturesLabels.firstColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
+                ValidFeaturesLabels.sequence_labeling_labelList.extend(
+                    inputFeaturesLabelsForProcess.sequence_labeling_label)
+                ValidFeaturesLabels.where_column_number_labelList.extend(
+                    inputFeaturesLabelsForProcess.where_column_number_label)
+                ValidFeaturesLabels.sel_where_detemine_labellist.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_label)
+                ValidFeaturesLabels.firstColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
                 ValidFeaturesLabels.connect_inputIDsList.extend(inputFeaturesLabelsForProcess.connect_inputIDs)
                 ValidFeaturesLabels.column_queryList.extend(inputFeaturesLabelsForProcess.column_queryList)
                 ValidFeaturesLabels.column_tableidList.extend(inputFeaturesLabelsForProcess.column_tableidList)
-                ValidFeaturesLabels.each_column_inputMaskList.extend(inputFeaturesLabelsForProcess.each_column_inputMask)
+                ValidFeaturesLabels.each_column_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.each_column_inputMask)
                 ValidFeaturesLabels.question_masks.extend(inputFeaturesLabelsForProcess.question_masks)
-                ValidFeaturesLabels.nextColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
+                ValidFeaturesLabels.nextColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
                 ValidFeaturesLabels.nextColumn_inputMaskList.extend(inputFeaturesLabelsForProcess.nextColumn_inputMask)
                 ValidFeaturesLabels.select_number_labelList.extend(inputFeaturesLabelsForProcess.select_number_label)
                 ValidFeaturesLabels.where_number_labelList.extend(inputFeaturesLabelsForProcess.where_number_label)
@@ -850,30 +889,45 @@ class NL2SQL:
                 ValidFeaturesLabels.table_id_list.append(sample["table_id"])
 
             valid_dataset = data.TensorDataset(torch.tensor(ValidFeaturesLabels.connect_inputIDsList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sequence_labeling_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.select_column_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_conlumn_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sel_where_detemine_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.attention_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_relation_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.select_agg_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sequence_labeling_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_column_number_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sel_where_detemine_labellist, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.firstColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.each_column_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.question_masks, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.nextColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.nextColumn_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.select_number_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_number_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_op_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.value_masks, dtype=torch.long)
-                                            )
+                                               torch.tensor(ValidFeaturesLabels.sequence_labeling_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.select_column_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_conlumn_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.sel_where_detemine_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.attention_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_relation_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.select_agg_labelList, dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.sequence_labeling_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_column_number_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.sel_where_detemine_labellist,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.firstColumn_CLS_startPositionList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.each_column_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.question_masks, dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.nextColumn_CLS_startPositionList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.nextColumn_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.select_number_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_number_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_op_labelList, dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.value_masks, dtype=torch.long)
+                                               )
 
             valid_iterator = torch.utils.data.DataLoader(valid_dataset, batch_size=self.step_batch_size, shuffle=False)
 
-            return valid_iterator, ValidFeaturesLabels, valid_tableData #, test_iterator, TestFeaturesLabels, test_tableData
+            return valid_iterator, ValidFeaturesLabels, valid_tableData  # , test_iterator, TestFeaturesLabels, test_tableData
         elif mode == "test&evaluate":
             logger.info("Loading data, the mode is \"test&evaluate\", Loading test_set and valid_set")
             test_data_list = self.read_query(self.test_data_path)
@@ -887,24 +941,35 @@ class NL2SQL:
             bert_tokenizer = BertTokenizer.from_pretrained(self.bert_model_path, cache_dir=None, do_lower_case=True)
 
             for sample in valid_data_list:
-                inputFeaturesLabelsForProcess, valid_question_tokens = self.process_sample(sample, valid_tableData, bert_tokenizer)
-                ValidFeaturesLabels.sequence_labeling_inputMaskList.extend(inputFeaturesLabelsForProcess.sequence_labeling_inputMask)
-                ValidFeaturesLabels.select_column_inputMaskList.extend(inputFeaturesLabelsForProcess.select_column_inputMask)
-                ValidFeaturesLabels.where_conlumn_inputMaskList.extend(inputFeaturesLabelsForProcess.where_conlumn_inputMask)
-                ValidFeaturesLabels.sel_where_detemine_inputMaskList.extend(inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
+                inputFeaturesLabelsForProcess, valid_question_tokens = self.process_sample(sample, valid_tableData,
+                                                                                           bert_tokenizer)
+                ValidFeaturesLabels.sequence_labeling_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sequence_labeling_inputMask)
+                ValidFeaturesLabels.select_column_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.select_column_inputMask)
+                ValidFeaturesLabels.where_conlumn_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.where_conlumn_inputMask)
+                ValidFeaturesLabels.sel_where_detemine_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
                 ValidFeaturesLabels.attention_inputMaskList.extend(inputFeaturesLabelsForProcess.attention_inputMask)
                 ValidFeaturesLabels.where_relation_labelList.extend(inputFeaturesLabelsForProcess.where_relation_label)
                 ValidFeaturesLabels.select_agg_labelList.extend(inputFeaturesLabelsForProcess.select_agg_label)
-                ValidFeaturesLabels.sequence_labeling_labelList.extend(inputFeaturesLabelsForProcess.sequence_labeling_label)
-                ValidFeaturesLabels.where_column_number_labelList.extend(inputFeaturesLabelsForProcess.where_column_number_label)
-                ValidFeaturesLabels.sel_where_detemine_labellist.extend(inputFeaturesLabelsForProcess.sel_where_detemine_label)
-                ValidFeaturesLabels.firstColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
+                ValidFeaturesLabels.sequence_labeling_labelList.extend(
+                    inputFeaturesLabelsForProcess.sequence_labeling_label)
+                ValidFeaturesLabels.where_column_number_labelList.extend(
+                    inputFeaturesLabelsForProcess.where_column_number_label)
+                ValidFeaturesLabels.sel_where_detemine_labellist.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_label)
+                ValidFeaturesLabels.firstColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
                 ValidFeaturesLabels.connect_inputIDsList.extend(inputFeaturesLabelsForProcess.connect_inputIDs)
                 ValidFeaturesLabels.column_queryList.extend(inputFeaturesLabelsForProcess.column_queryList)
                 ValidFeaturesLabels.column_tableidList.extend(inputFeaturesLabelsForProcess.column_tableidList)
-                ValidFeaturesLabels.each_column_inputMaskList.extend(inputFeaturesLabelsForProcess.each_column_inputMask)
+                ValidFeaturesLabels.each_column_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.each_column_inputMask)
                 ValidFeaturesLabels.question_masks.extend(inputFeaturesLabelsForProcess.question_masks)
-                ValidFeaturesLabels.nextColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
+                ValidFeaturesLabels.nextColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
                 ValidFeaturesLabels.nextColumn_inputMaskList.extend(inputFeaturesLabelsForProcess.nextColumn_inputMask)
                 ValidFeaturesLabels.select_number_labelList.extend(inputFeaturesLabelsForProcess.select_number_label)
                 ValidFeaturesLabels.where_number_labelList.extend(inputFeaturesLabelsForProcess.where_number_label)
@@ -917,63 +982,87 @@ class NL2SQL:
                 ValidFeaturesLabels.table_id_list.append(sample["table_id"])
 
             for sample in test_data_list:
-                inputFeaturesLabelsForProcess,test_question_tokens = self.process_sample_test(sample, test_tableData, bert_tokenizer)
+                inputFeaturesLabelsForProcess, test_question_tokens = self.process_sample_test(sample, test_tableData,
+                                                                                               bert_tokenizer)
                 TestFeaturesLabels.attention_inputMaskList.extend(inputFeaturesLabelsForProcess.attention_inputMask)
-                TestFeaturesLabels.firstColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
+                TestFeaturesLabels.firstColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
                 TestFeaturesLabels.connect_inputIDsList.extend(inputFeaturesLabelsForProcess.connect_inputIDs)
                 TestFeaturesLabels.each_column_inputMaskList.extend(inputFeaturesLabelsForProcess.each_column_inputMask)
                 TestFeaturesLabels.question_masks.extend(inputFeaturesLabelsForProcess.question_masks)
-                TestFeaturesLabels.nextColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
+                TestFeaturesLabels.nextColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
                 TestFeaturesLabels.nextColumn_inputMaskList.extend(inputFeaturesLabelsForProcess.nextColumn_inputMask)
                 TestFeaturesLabels.value_masks.extend(inputFeaturesLabelsForProcess.value_masks)
-                TestFeaturesLabels.sel_where_detemine_inputMaskList.extend(inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
+                TestFeaturesLabels.sel_where_detemine_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
                 TestFeaturesLabels.question_token_list.append(test_question_tokens)
                 TestFeaturesLabels.eachData_indexList.append(len(TestFeaturesLabels.connect_inputIDsList))
                 TestFeaturesLabels.question_list.append(sample["question"].strip().replace(" ", ""))
                 TestFeaturesLabels.table_id_list.append(sample["table_id"])
 
             valid_dataset = data.TensorDataset(torch.tensor(ValidFeaturesLabels.connect_inputIDsList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sequence_labeling_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.select_column_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_conlumn_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sel_where_detemine_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.attention_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_relation_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.select_agg_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sequence_labeling_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_column_number_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sel_where_detemine_labellist, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.firstColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.each_column_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.question_masks, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.nextColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.nextColumn_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.select_number_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_number_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_op_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.value_masks, dtype=torch.long)
-                                            )
+                                               torch.tensor(ValidFeaturesLabels.sequence_labeling_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.select_column_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_conlumn_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.sel_where_detemine_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.attention_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_relation_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.select_agg_labelList, dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.sequence_labeling_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_column_number_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.sel_where_detemine_labellist,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.firstColumn_CLS_startPositionList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.each_column_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.question_masks, dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.nextColumn_CLS_startPositionList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.nextColumn_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.select_number_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_number_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_op_labelList, dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.value_masks, dtype=torch.long)
+                                               )
             test_dataset = data.TensorDataset(torch.tensor(TestFeaturesLabels.connect_inputIDsList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.attention_inputMaskList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.firstColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.each_column_inputMaskList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.question_masks, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.nextColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.nextColumn_inputMaskList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.value_masks, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.sel_where_detemine_inputMaskList, dtype=torch.long),
-                                            )
+                                              torch.tensor(TestFeaturesLabels.attention_inputMaskList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.firstColumn_CLS_startPositionList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.each_column_inputMaskList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.question_masks, dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.nextColumn_CLS_startPositionList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.nextColumn_inputMaskList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.value_masks, dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.sel_where_detemine_inputMaskList,
+                                                           dtype=torch.long),
+                                              )
 
             valid_iterator = torch.utils.data.DataLoader(valid_dataset, batch_size=self.step_batch_size, shuffle=False)
             test_iterator = torch.utils.data.DataLoader(test_dataset, batch_size=self.step_batch_size, shuffle=False)
 
-
             return valid_iterator, ValidFeaturesLabels, valid_tableData, test_iterator, TestFeaturesLabels, test_tableData
         else:
-            print("There is no such mode for data_iterator, please select mode from \"train, test, evaluate, test&evaluate\"")
+            print(
+                "There is no such mode for data_iterator, please select mode from \"train, test, evaluate, test&evaluate\"")
 
-
-    def data_iterator_(self,mode = 'train'):
+    def data_iterator_(self, mode='train'):
         # train: 41522 val: 4396 test: 4086
         if mode == 'train':
             logger.info("Loading data, the mode is \"train\", Loading train_set and valid_set")
@@ -986,24 +1075,35 @@ class NL2SQL:
             ValidFeaturesLabels = InputFeaturesLabelsForTensor()
 
             for sample in train_queryData:
-                inputFeaturesLabelsForProcess, train_question_tokens = self.process_sample(sample, train_tableData, bert_tokenizer)
-                TrainFeaturesLabels.sequence_labeling_inputMaskList.extend(inputFeaturesLabelsForProcess.sequence_labeling_inputMask)
-                TrainFeaturesLabels.select_column_inputMaskList.extend(inputFeaturesLabelsForProcess.select_column_inputMask)
-                TrainFeaturesLabels.where_conlumn_inputMaskList.extend(inputFeaturesLabelsForProcess.where_conlumn_inputMask)
-                TrainFeaturesLabels.sel_where_detemine_inputMaskList.extend(inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
+                inputFeaturesLabelsForProcess, train_question_tokens = self.process_sample(sample, train_tableData,
+                                                                                           bert_tokenizer)
+                TrainFeaturesLabels.sequence_labeling_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sequence_labeling_inputMask)
+                TrainFeaturesLabels.select_column_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.select_column_inputMask)
+                TrainFeaturesLabels.where_conlumn_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.where_conlumn_inputMask)
+                TrainFeaturesLabels.sel_where_detemine_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
                 TrainFeaturesLabels.attention_inputMaskList.extend(inputFeaturesLabelsForProcess.attention_inputMask)
                 TrainFeaturesLabels.where_relation_labelList.extend(inputFeaturesLabelsForProcess.where_relation_label)
                 TrainFeaturesLabels.select_agg_labelList.extend(inputFeaturesLabelsForProcess.select_agg_label)
-                TrainFeaturesLabels.sequence_labeling_labelList.extend(inputFeaturesLabelsForProcess.sequence_labeling_label)
-                TrainFeaturesLabels.where_column_number_labelList.extend(inputFeaturesLabelsForProcess.where_column_number_label)
-                TrainFeaturesLabels.sel_where_detemine_labellist.extend(inputFeaturesLabelsForProcess.sel_where_detemine_label)
-                TrainFeaturesLabels.firstColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
+                TrainFeaturesLabels.sequence_labeling_labelList.extend(
+                    inputFeaturesLabelsForProcess.sequence_labeling_label)
+                TrainFeaturesLabels.where_column_number_labelList.extend(
+                    inputFeaturesLabelsForProcess.where_column_number_label)
+                TrainFeaturesLabels.sel_where_detemine_labellist.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_label)
+                TrainFeaturesLabels.firstColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
                 TrainFeaturesLabels.connect_inputIDsList.extend(inputFeaturesLabelsForProcess.connect_inputIDs)
                 TrainFeaturesLabels.column_queryList.extend(inputFeaturesLabelsForProcess.column_queryList)
                 TrainFeaturesLabels.column_tableidList.extend(inputFeaturesLabelsForProcess.column_tableidList)
-                TrainFeaturesLabels.each_column_inputMaskList.extend(inputFeaturesLabelsForProcess.each_column_inputMask)
+                TrainFeaturesLabels.each_column_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.each_column_inputMask)
                 TrainFeaturesLabels.question_masks.extend(inputFeaturesLabelsForProcess.question_masks)
-                TrainFeaturesLabels.nextColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
+                TrainFeaturesLabels.nextColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
                 TrainFeaturesLabels.nextColumn_inputMaskList.extend(inputFeaturesLabelsForProcess.nextColumn_inputMask)
                 TrainFeaturesLabels.select_number_labelList.extend(inputFeaturesLabelsForProcess.select_number_label)
                 TrainFeaturesLabels.where_number_labelList.extend(inputFeaturesLabelsForProcess.where_number_label)
@@ -1016,24 +1116,35 @@ class NL2SQL:
                 TrainFeaturesLabels.table_id_list.append(sample["table_id"])
 
             for sample in valid_queryData:
-                inputFeaturesLabelsForProcess, valid_question_tokens = self.process_sample(sample, valid_tableData, bert_tokenizer)
-                ValidFeaturesLabels.sequence_labeling_inputMaskList.extend(inputFeaturesLabelsForProcess.sequence_labeling_inputMask)
-                ValidFeaturesLabels.select_column_inputMaskList.extend(inputFeaturesLabelsForProcess.select_column_inputMask)
-                ValidFeaturesLabels.where_conlumn_inputMaskList.extend(inputFeaturesLabelsForProcess.where_conlumn_inputMask)
-                ValidFeaturesLabels.sel_where_detemine_inputMaskList.extend(inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
+                inputFeaturesLabelsForProcess, valid_question_tokens = self.process_sample(sample, valid_tableData,
+                                                                                           bert_tokenizer)
+                ValidFeaturesLabels.sequence_labeling_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sequence_labeling_inputMask)
+                ValidFeaturesLabels.select_column_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.select_column_inputMask)
+                ValidFeaturesLabels.where_conlumn_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.where_conlumn_inputMask)
+                ValidFeaturesLabels.sel_where_detemine_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
                 ValidFeaturesLabels.attention_inputMaskList.extend(inputFeaturesLabelsForProcess.attention_inputMask)
                 ValidFeaturesLabels.where_relation_labelList.extend(inputFeaturesLabelsForProcess.where_relation_label)
                 ValidFeaturesLabels.select_agg_labelList.extend(inputFeaturesLabelsForProcess.select_agg_label)
-                ValidFeaturesLabels.sequence_labeling_labelList.extend(inputFeaturesLabelsForProcess.sequence_labeling_label)
-                ValidFeaturesLabels.where_column_number_labelList.extend(inputFeaturesLabelsForProcess.where_column_number_label)
-                ValidFeaturesLabels.sel_where_detemine_labellist.extend(inputFeaturesLabelsForProcess.sel_where_detemine_label)
-                ValidFeaturesLabels.firstColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
+                ValidFeaturesLabels.sequence_labeling_labelList.extend(
+                    inputFeaturesLabelsForProcess.sequence_labeling_label)
+                ValidFeaturesLabels.where_column_number_labelList.extend(
+                    inputFeaturesLabelsForProcess.where_column_number_label)
+                ValidFeaturesLabels.sel_where_detemine_labellist.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_label)
+                ValidFeaturesLabels.firstColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
                 ValidFeaturesLabels.connect_inputIDsList.extend(inputFeaturesLabelsForProcess.connect_inputIDs)
                 ValidFeaturesLabels.column_queryList.extend(inputFeaturesLabelsForProcess.column_queryList)
                 ValidFeaturesLabels.column_tableidList.extend(inputFeaturesLabelsForProcess.column_tableidList)
-                ValidFeaturesLabels.each_column_inputMaskList.extend(inputFeaturesLabelsForProcess.each_column_inputMask)
+                ValidFeaturesLabels.each_column_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.each_column_inputMask)
                 ValidFeaturesLabels.question_masks.extend(inputFeaturesLabelsForProcess.question_masks)
-                ValidFeaturesLabels.nextColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
+                ValidFeaturesLabels.nextColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
                 ValidFeaturesLabels.nextColumn_inputMaskList.extend(inputFeaturesLabelsForProcess.nextColumn_inputMask)
                 ValidFeaturesLabels.select_number_labelList.extend(inputFeaturesLabelsForProcess.select_number_label)
                 ValidFeaturesLabels.where_number_labelList.extend(inputFeaturesLabelsForProcess.where_number_label)
@@ -1044,7 +1155,6 @@ class NL2SQL:
                 ValidFeaturesLabels.sql_list.append(sample["sql"])
                 ValidFeaturesLabels.question_list.append(sample["question"].strip().replace(" ", ""))
                 ValidFeaturesLabels.table_id_list.append(sample["table_id"])
-
 
             train_dataset = data.TensorDataset(
                 torch.tensor(TrainFeaturesLabels.connect_inputIDsList, dtype=torch.long),
@@ -1092,7 +1202,7 @@ class NL2SQL:
             # 将 dataset 转成 dataloader
             train_iterator = torch.utils.data.DataLoader(train_dataset, batch_size=self.step_batch_size, shuffle=True)
             valid_iterator = torch.utils.data.DataLoader(valid_dataset, batch_size=self.step_batch_size, shuffle=False)
-            return train_iterator, valid_iterator, ValidFeaturesLabels, valid_tableData 
+            return train_iterator, valid_iterator, ValidFeaturesLabels, valid_tableData
         elif mode == "test":
             logger.info("Loading data, the mode is \"test\", Loading test_set")
             test_data_list = self.read_query(self.test_data_path)
@@ -1102,31 +1212,41 @@ class NL2SQL:
             TestFeaturesLabels = InputFeaturesLabelsForTensor()
 
             for sample in test_data_list:
-                inputFeaturesLabelsForProcess,test_question_tokens = self.process_sample_test(sample, test_tableData, bert_tokenizer)
+                inputFeaturesLabelsForProcess, test_question_tokens = self.process_sample_test(sample, test_tableData,
+                                                                                               bert_tokenizer)
                 TestFeaturesLabels.attention_inputMaskList.extend(inputFeaturesLabelsForProcess.attention_inputMask)
-                TestFeaturesLabels.firstColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
+                TestFeaturesLabels.firstColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
                 TestFeaturesLabels.connect_inputIDsList.extend(inputFeaturesLabelsForProcess.connect_inputIDs)
                 TestFeaturesLabels.each_column_inputMaskList.extend(inputFeaturesLabelsForProcess.each_column_inputMask)
                 TestFeaturesLabels.question_masks.extend(inputFeaturesLabelsForProcess.question_masks)
-                TestFeaturesLabels.nextColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
+                TestFeaturesLabels.nextColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
                 TestFeaturesLabels.nextColumn_inputMaskList.extend(inputFeaturesLabelsForProcess.nextColumn_inputMask)
                 TestFeaturesLabels.value_masks.extend(inputFeaturesLabelsForProcess.value_masks)
-                TestFeaturesLabels.sel_where_detemine_inputMaskList.extend(inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
+                TestFeaturesLabels.sel_where_detemine_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
                 TestFeaturesLabels.question_token_list.append(test_question_tokens)
                 TestFeaturesLabels.eachData_indexList.append(len(TestFeaturesLabels.connect_inputIDsList))
                 TestFeaturesLabels.question_list.append(sample["question"].strip().replace(" ", ""))
                 TestFeaturesLabels.table_id_list.append(sample["table_id"])
 
             test_dataset = data.TensorDataset(torch.tensor(TestFeaturesLabels.connect_inputIDsList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.attention_inputMaskList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.firstColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.each_column_inputMaskList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.question_masks, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.nextColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.nextColumn_inputMaskList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.value_masks, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.sel_where_detemine_inputMaskList, dtype=torch.long),
-                                            )
+                                              torch.tensor(TestFeaturesLabels.attention_inputMaskList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.firstColumn_CLS_startPositionList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.each_column_inputMaskList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.question_masks, dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.nextColumn_CLS_startPositionList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.nextColumn_inputMaskList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.value_masks, dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.sel_where_detemine_inputMaskList,
+                                                           dtype=torch.long),
+                                              )
 
             test_iterator = torch.utils.data.DataLoader(test_dataset, batch_size=self.step_batch_size, shuffle=False)
 
@@ -1141,24 +1261,35 @@ class NL2SQL:
             ValidFeaturesLabels = InputFeaturesLabelsForTensor()
 
             for sample in valid_data_list:
-                inputFeaturesLabelsForProcess, valid_question_tokens = self.process_sample(sample, valid_tableData, bert_tokenizer)
-                ValidFeaturesLabels.sequence_labeling_inputMaskList.extend(inputFeaturesLabelsForProcess.sequence_labeling_inputMask)
-                ValidFeaturesLabels.select_column_inputMaskList.extend(inputFeaturesLabelsForProcess.select_column_inputMask)
-                ValidFeaturesLabels.where_conlumn_inputMaskList.extend(inputFeaturesLabelsForProcess.where_conlumn_inputMask)
-                ValidFeaturesLabels.sel_where_detemine_inputMaskList.extend(inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
+                inputFeaturesLabelsForProcess, valid_question_tokens = self.process_sample(sample, valid_tableData,
+                                                                                           bert_tokenizer)
+                ValidFeaturesLabels.sequence_labeling_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sequence_labeling_inputMask)
+                ValidFeaturesLabels.select_column_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.select_column_inputMask)
+                ValidFeaturesLabels.where_conlumn_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.where_conlumn_inputMask)
+                ValidFeaturesLabels.sel_where_detemine_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
                 ValidFeaturesLabels.attention_inputMaskList.extend(inputFeaturesLabelsForProcess.attention_inputMask)
                 ValidFeaturesLabels.where_relation_labelList.extend(inputFeaturesLabelsForProcess.where_relation_label)
                 ValidFeaturesLabels.select_agg_labelList.extend(inputFeaturesLabelsForProcess.select_agg_label)
-                ValidFeaturesLabels.sequence_labeling_labelList.extend(inputFeaturesLabelsForProcess.sequence_labeling_label)
-                ValidFeaturesLabels.where_column_number_labelList.extend(inputFeaturesLabelsForProcess.where_column_number_label)
-                ValidFeaturesLabels.sel_where_detemine_labellist.extend(inputFeaturesLabelsForProcess.sel_where_detemine_label)
-                ValidFeaturesLabels.firstColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
+                ValidFeaturesLabels.sequence_labeling_labelList.extend(
+                    inputFeaturesLabelsForProcess.sequence_labeling_label)
+                ValidFeaturesLabels.where_column_number_labelList.extend(
+                    inputFeaturesLabelsForProcess.where_column_number_label)
+                ValidFeaturesLabels.sel_where_detemine_labellist.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_label)
+                ValidFeaturesLabels.firstColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
                 ValidFeaturesLabels.connect_inputIDsList.extend(inputFeaturesLabelsForProcess.connect_inputIDs)
                 ValidFeaturesLabels.column_queryList.extend(inputFeaturesLabelsForProcess.column_queryList)
                 ValidFeaturesLabels.column_tableidList.extend(inputFeaturesLabelsForProcess.column_tableidList)
-                ValidFeaturesLabels.each_column_inputMaskList.extend(inputFeaturesLabelsForProcess.each_column_inputMask)
+                ValidFeaturesLabels.each_column_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.each_column_inputMask)
                 ValidFeaturesLabels.question_masks.extend(inputFeaturesLabelsForProcess.question_masks)
-                ValidFeaturesLabels.nextColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
+                ValidFeaturesLabels.nextColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
                 ValidFeaturesLabels.nextColumn_inputMaskList.extend(inputFeaturesLabelsForProcess.nextColumn_inputMask)
                 ValidFeaturesLabels.select_number_labelList.extend(inputFeaturesLabelsForProcess.select_number_label)
                 ValidFeaturesLabels.where_number_labelList.extend(inputFeaturesLabelsForProcess.where_number_label)
@@ -1171,30 +1302,45 @@ class NL2SQL:
                 ValidFeaturesLabels.table_id_list.append(sample["table_id"])
 
             valid_dataset = data.TensorDataset(torch.tensor(ValidFeaturesLabels.connect_inputIDsList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sequence_labeling_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.select_column_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_conlumn_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sel_where_detemine_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.attention_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_relation_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.select_agg_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sequence_labeling_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_column_number_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sel_where_detemine_labellist, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.firstColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.each_column_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.question_masks, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.nextColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.nextColumn_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.select_number_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_number_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_op_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.value_masks, dtype=torch.long)
-                                            )
+                                               torch.tensor(ValidFeaturesLabels.sequence_labeling_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.select_column_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_conlumn_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.sel_where_detemine_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.attention_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_relation_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.select_agg_labelList, dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.sequence_labeling_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_column_number_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.sel_where_detemine_labellist,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.firstColumn_CLS_startPositionList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.each_column_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.question_masks, dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.nextColumn_CLS_startPositionList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.nextColumn_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.select_number_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_number_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_op_labelList, dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.value_masks, dtype=torch.long)
+                                               )
 
             valid_iterator = torch.utils.data.DataLoader(valid_dataset, batch_size=self.step_batch_size, shuffle=False)
 
-            return valid_iterator, ValidFeaturesLabels, valid_tableData #, test_iterator, TestFeaturesLabels, test_tableData
+            return valid_iterator, ValidFeaturesLabels, valid_tableData  # , test_iterator, TestFeaturesLabels, test_tableData
         elif mode == "test&evaluate":
             logger.info("Loading data, the mode is \"test&evaluate\", Loading test_set and valid_set")
             test_data_list = self.read_query(self.test_data_path)
@@ -1208,24 +1354,35 @@ class NL2SQL:
             bert_tokenizer = BertTokenizer.from_pretrained(self.bert_model_path, cache_dir=None, do_lower_case=True)
 
             for sample in valid_data_list:
-                inputFeaturesLabelsForProcess, valid_question_tokens = self.process_sample(sample, valid_tableData, bert_tokenizer)
-                ValidFeaturesLabels.sequence_labeling_inputMaskList.extend(inputFeaturesLabelsForProcess.sequence_labeling_inputMask)
-                ValidFeaturesLabels.select_column_inputMaskList.extend(inputFeaturesLabelsForProcess.select_column_inputMask)
-                ValidFeaturesLabels.where_conlumn_inputMaskList.extend(inputFeaturesLabelsForProcess.where_conlumn_inputMask)
-                ValidFeaturesLabels.sel_where_detemine_inputMaskList.extend(inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
+                inputFeaturesLabelsForProcess, valid_question_tokens = self.process_sample(sample, valid_tableData,
+                                                                                           bert_tokenizer)
+                ValidFeaturesLabels.sequence_labeling_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sequence_labeling_inputMask)
+                ValidFeaturesLabels.select_column_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.select_column_inputMask)
+                ValidFeaturesLabels.where_conlumn_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.where_conlumn_inputMask)
+                ValidFeaturesLabels.sel_where_detemine_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
                 ValidFeaturesLabels.attention_inputMaskList.extend(inputFeaturesLabelsForProcess.attention_inputMask)
                 ValidFeaturesLabels.where_relation_labelList.extend(inputFeaturesLabelsForProcess.where_relation_label)
                 ValidFeaturesLabels.select_agg_labelList.extend(inputFeaturesLabelsForProcess.select_agg_label)
-                ValidFeaturesLabels.sequence_labeling_labelList.extend(inputFeaturesLabelsForProcess.sequence_labeling_label)
-                ValidFeaturesLabels.where_column_number_labelList.extend(inputFeaturesLabelsForProcess.where_column_number_label)
-                ValidFeaturesLabels.sel_where_detemine_labellist.extend(inputFeaturesLabelsForProcess.sel_where_detemine_label)
-                ValidFeaturesLabels.firstColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
+                ValidFeaturesLabels.sequence_labeling_labelList.extend(
+                    inputFeaturesLabelsForProcess.sequence_labeling_label)
+                ValidFeaturesLabels.where_column_number_labelList.extend(
+                    inputFeaturesLabelsForProcess.where_column_number_label)
+                ValidFeaturesLabels.sel_where_detemine_labellist.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_label)
+                ValidFeaturesLabels.firstColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
                 ValidFeaturesLabels.connect_inputIDsList.extend(inputFeaturesLabelsForProcess.connect_inputIDs)
                 ValidFeaturesLabels.column_queryList.extend(inputFeaturesLabelsForProcess.column_queryList)
                 ValidFeaturesLabels.column_tableidList.extend(inputFeaturesLabelsForProcess.column_tableidList)
-                ValidFeaturesLabels.each_column_inputMaskList.extend(inputFeaturesLabelsForProcess.each_column_inputMask)
+                ValidFeaturesLabels.each_column_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.each_column_inputMask)
                 ValidFeaturesLabels.question_masks.extend(inputFeaturesLabelsForProcess.question_masks)
-                ValidFeaturesLabels.nextColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
+                ValidFeaturesLabels.nextColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
                 ValidFeaturesLabels.nextColumn_inputMaskList.extend(inputFeaturesLabelsForProcess.nextColumn_inputMask)
                 ValidFeaturesLabels.select_number_labelList.extend(inputFeaturesLabelsForProcess.select_number_label)
                 ValidFeaturesLabels.where_number_labelList.extend(inputFeaturesLabelsForProcess.where_number_label)
@@ -1238,70 +1395,94 @@ class NL2SQL:
                 ValidFeaturesLabels.table_id_list.append(sample["table_id"])
 
             for sample in test_data_list:
-                inputFeaturesLabelsForProcess,test_question_tokens = self.process_sample_test(sample, test_tableData, bert_tokenizer)
+                inputFeaturesLabelsForProcess, test_question_tokens = self.process_sample_test(sample, test_tableData,
+                                                                                               bert_tokenizer)
                 TestFeaturesLabels.attention_inputMaskList.extend(inputFeaturesLabelsForProcess.attention_inputMask)
-                TestFeaturesLabels.firstColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
+                TestFeaturesLabels.firstColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.firstColumn_CLS_startPosition)
                 TestFeaturesLabels.connect_inputIDsList.extend(inputFeaturesLabelsForProcess.connect_inputIDs)
                 TestFeaturesLabels.each_column_inputMaskList.extend(inputFeaturesLabelsForProcess.each_column_inputMask)
                 TestFeaturesLabels.question_masks.extend(inputFeaturesLabelsForProcess.question_masks)
-                TestFeaturesLabels.nextColumn_CLS_startPositionList.extend(inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
+                TestFeaturesLabels.nextColumn_CLS_startPositionList.extend(
+                    inputFeaturesLabelsForProcess.nextColumn_CLS_startPosition)
                 TestFeaturesLabels.nextColumn_inputMaskList.extend(inputFeaturesLabelsForProcess.nextColumn_inputMask)
                 TestFeaturesLabels.value_masks.extend(inputFeaturesLabelsForProcess.value_masks)
-                TestFeaturesLabels.sel_where_detemine_inputMaskList.extend(inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
+                TestFeaturesLabels.sel_where_detemine_inputMaskList.extend(
+                    inputFeaturesLabelsForProcess.sel_where_detemine_inputMask)
                 TestFeaturesLabels.question_token_list.append(test_question_tokens)
                 TestFeaturesLabels.eachData_indexList.append(len(TestFeaturesLabels.connect_inputIDsList))
                 TestFeaturesLabels.question_list.append(sample["question"].strip().replace(" ", ""))
                 TestFeaturesLabels.table_id_list.append(sample["table_id"])
 
             valid_dataset = data.TensorDataset(torch.tensor(ValidFeaturesLabels.connect_inputIDsList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sequence_labeling_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.select_column_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_conlumn_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sel_where_detemine_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.attention_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_relation_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.select_agg_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sequence_labeling_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_column_number_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.sel_where_detemine_labellist, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.firstColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.each_column_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.question_masks, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.nextColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.nextColumn_inputMaskList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.select_number_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_number_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.where_op_labelList, dtype=torch.long),
-                                            torch.tensor(ValidFeaturesLabels.value_masks, dtype=torch.long)
-                                            )
+                                               torch.tensor(ValidFeaturesLabels.sequence_labeling_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.select_column_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_conlumn_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.sel_where_detemine_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.attention_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_relation_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.select_agg_labelList, dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.sequence_labeling_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_column_number_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.sel_where_detemine_labellist,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.firstColumn_CLS_startPositionList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.each_column_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.question_masks, dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.nextColumn_CLS_startPositionList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.nextColumn_inputMaskList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.select_number_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_number_labelList,
+                                                            dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.where_op_labelList, dtype=torch.long),
+                                               torch.tensor(ValidFeaturesLabels.value_masks, dtype=torch.long)
+                                               )
             test_dataset = data.TensorDataset(torch.tensor(TestFeaturesLabels.connect_inputIDsList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.attention_inputMaskList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.firstColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.each_column_inputMaskList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.question_masks, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.nextColumn_CLS_startPositionList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.nextColumn_inputMaskList, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.value_masks, dtype=torch.long),
-                                            torch.tensor(TestFeaturesLabels.sel_where_detemine_inputMaskList, dtype=torch.long),
-                                            )
+                                              torch.tensor(TestFeaturesLabels.attention_inputMaskList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.firstColumn_CLS_startPositionList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.each_column_inputMaskList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.question_masks, dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.nextColumn_CLS_startPositionList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.nextColumn_inputMaskList,
+                                                           dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.value_masks, dtype=torch.long),
+                                              torch.tensor(TestFeaturesLabels.sel_where_detemine_inputMaskList,
+                                                           dtype=torch.long),
+                                              )
 
             valid_iterator = torch.utils.data.DataLoader(valid_dataset, batch_size=self.step_batch_size, shuffle=False)
             test_iterator = torch.utils.data.DataLoader(test_dataset, batch_size=self.step_batch_size, shuffle=False)
 
-
             return valid_iterator, ValidFeaturesLabels, valid_tableData, test_iterator, TestFeaturesLabels, test_tableData
         else:
-            print("There is no such mode for data_iterator, please select mode from \"train, test, evaluate, test&evaluate\"")
+            print(
+                "There is no such mode for data_iterator, please select mode from \"train, test, evaluate, test&evaluate\"")
 
-
-    def test(self, batch_size, step_batch_size,do_evaluate=True, do_test=True):
+    def test(self, batch_size, step_batch_size, do_evaluate=True, do_test=True):
         self.batch_size = batch_size
         self.step_batch_size = step_batch_size
         # print('load data')
         # train_iterator, valid_iterator, valid_question_list, valid_table_id_list, valid_eachData_index, valid_sql_list, valid_tableData, valid_column_queryList, valid_column_tableidList, test_iterator, test_question_list, test_table_id_list, test_eachData_index, test_tableData, valid_question_tokens, test_question_tokens = self.data_iterator()
         self.seed_everything()
         model = BertNL2SQL(self.bert_config)
-        model.load_state_dict(torch.load("../model/model2019-08-09.bin"))            
+        model.load_state_dict(torch.load(os.path.join(self.model_dir, "model2019-08-09.bin")))
         model = model.to(self.device) if torch.cuda.is_available() else model
         for param in model.parameters():
             param.requires_grad = False
@@ -1328,7 +1509,7 @@ class NL2SQL:
             where_op_predict = []
             for j, valid_batch_data in enumerate(valid_iterator):
                 if torch.cuda.is_available():
-                    print('validbatchIndex:',j)
+                    print('validbatchIndex:', j)
 
                     input_ids = valid_batch_data[0].to(self.device)
                     tag_masks = valid_batch_data[1].to(self.device)
@@ -1350,7 +1531,9 @@ class NL2SQL:
                     where_num_labels = valid_batch_data[17].to(self.device)
                     op_labels = valid_batch_data[18].to(self.device)
                     value_masks = valid_batch_data[19].to(self.device)
-                tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks, nextColumn_CLS_startPositionList, value_masks, cls_indices)
+                tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits = model(
+                    input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks,
+                    nextColumn_CLS_startPositionList, value_masks, cls_indices)
 
                 connection_labels = connection_labels.to('cpu').numpy().tolist()
                 agg_labels = agg_labels.to('cpu').numpy().tolist()
@@ -1381,20 +1564,23 @@ class NL2SQL:
                 where_op_groundTruth.extend(op_labels)
                 where_op_predict.extend(op_logits)
 
-            logits_lists = [sequence_labeling_predict, select_agg_predict, where_relation_predict, where_conlumn_number_predict, sel_where_detemine_predict, select_number_predict, where_number_predict, type_probs_list, where_op_predict]
-            labels_lists = [sequence_labeling_groudTruth, select_agg_groundTruth, where_relation_groundTruth, where_conlumn_number_groundTruth, sel_where_detemine_groundTruth, select_number_groundTruth, where_number_groundTruth, where_op_groundTruth]
+            logits_lists = [sequence_labeling_predict, select_agg_predict, where_relation_predict,
+                            where_conlumn_number_predict, sel_where_detemine_predict, select_number_predict,
+                            where_number_predict, type_probs_list, where_op_predict]
+            labels_lists = [sequence_labeling_groudTruth, select_agg_groundTruth, where_relation_groundTruth,
+                            where_conlumn_number_groundTruth, sel_where_detemine_groundTruth, select_number_groundTruth,
+                            where_number_groundTruth, where_op_groundTruth]
             logical_acc = Evaluate.evaluate(
                 logits_lists, firstColumn_CLS_startPositionList, labels_lists,
                 ValidFeaturesLabels.question_list, ValidFeaturesLabels.question_token_list,
                 ValidFeaturesLabels.table_id_list, ValidFeaturesLabels.eachData_indexList,
-                ValidFeaturesLabels.sql_list,valid_tableData,
+                ValidFeaturesLabels.sql_list, valid_tableData,
                 ValidFeaturesLabels.column_queryList, ValidFeaturesLabels.column_tableidList)
             logger.info("\nlogical_acc: %.3f\n\n" % (logical_acc))
 
-
         if do_test:
             test_iterator, TestFeaturesLabels, test_tableData = self.data_iterator(mode="test")
-            print('开始测试')
+            print('Start predicting')
             sequence_labeling_predict = []
             select_agg_predict = []
             where_relation_predict = []
@@ -1406,7 +1592,8 @@ class NL2SQL:
             type_probs_list = []
             where_op_predict = []
             for j, test_batch_data in enumerate(test_iterator):
-                print('testbatchIndex:',j)
+                if j%100==0:
+                    print('testbatchIndex:', j)
 
                 if torch.cuda.is_available():
                     input_ids = test_batch_data[0].to(self.device)
@@ -1418,7 +1605,9 @@ class NL2SQL:
                     subheader_masks = test_batch_data[6].to(self.device)
                     value_masks = test_batch_data[7].to(self.device)
                     type_masks = test_batch_data[8].to(self.device)
-                tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks, nextColumn_CLS_startPositionList, value_masks, cls_indices)
+                tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits = model(
+                    input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks,
+                    nextColumn_CLS_startPositionList, value_masks, cls_indices)
                 sequence_labeling_predict.extend(tag_logits)
                 select_agg_predict.extend(agg_logits)
                 where_relation_predict.extend(connection_logits)
@@ -1430,17 +1619,21 @@ class NL2SQL:
                 type_probs_list.extend(type_probs)
                 where_op_predict.extend(op_logits)
 
-            logits_lists = [sequence_labeling_predict, select_agg_predict, where_relation_predict, where_conlumn_number_predict, sel_where_detemine_predict, select_number_predict, where_number_predict, type_probs_list, where_op_predict]
+            logits_lists = [sequence_labeling_predict, select_agg_predict, where_relation_predict,
+                            where_conlumn_number_predict, sel_where_detemine_predict, select_number_predict,
+                            where_number_predict, type_probs_list, where_op_predict]
             labels_lists = [[] for _ in range(8)]
             test_sql_list, test_column_queryList, test_column_tableidList = [], [], []
-            Evaluate.evaluate(logits_lists, firstColumn_CLS_startPositionList, labels_lists, TestFeaturesLabels.question_list, TestFeaturesLabels.question_token_list,
-                            TestFeaturesLabels.table_id_list, TestFeaturesLabels.eachData_indexList, test_sql_list, test_tableData,
-                            test_column_queryList, test_column_tableidList, do_test=True)
-    
+            Evaluate.evaluate(logits_lists, firstColumn_CLS_startPositionList, labels_lists,
+                              TestFeaturesLabels.question_list, TestFeaturesLabels.question_token_list,
+                              TestFeaturesLabels.table_id_list, TestFeaturesLabels.eachData_indexList, test_sql_list,
+                              test_tableData,
+                              test_column_queryList, test_column_tableidList, config, do_test=True)
+
     def train(self):
         if self.debug: self.epochs = 1
         # 加载 dataloader
-        train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list,valid_question_token_list = self.data_iterator()
+        train_loader, valid_loader, valid_question_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list, valid_question_token_list = self.data_iterator()
         # 训练
         self.seed_everything()
         lr = 1e-5
@@ -1469,11 +1662,11 @@ class NL2SQL:
             # 加载每个 batch 并训练
             for i, batch_data in enumerate(train_loader):
                 if torch.cuda.is_available():
-                    print('epoch:',epoch,'batchIndex:',i)
+                    print('epoch:', epoch, 'batchIndex:', i)
                     input_ids = batch_data[0].to(self.device)
                     tag_masks = batch_data[1].to(self.device)
-                    sel_masks = batch_data[2].to(self.device)   
-                    con_masks = batch_data[3].to(self.device)   
+                    sel_masks = batch_data[2].to(self.device)
+                    con_masks = batch_data[3].to(self.device)
                     type_masks = batch_data[4].to(self.device)
                     attention_masks = batch_data[5].to(self.device)
                     connection_labels = batch_data[6].to(self.device)
@@ -1512,8 +1705,10 @@ class NL2SQL:
                     op_labels = batch_data[18]
                     value_masks = batch_data[19]
                 if torch.sum(sel_masks) == 0 or torch.sum(con_masks) == 0 or torch.sum(tag_masks) == 0: continue
-                train_dependencies = [tag_masks, sel_masks, con_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels, sel_num_labels, where_num_labels, op_labels]
-                loss = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks, subheader_cls_list, value_masks, cls_index_list, train_dependencies=train_dependencies)
+                train_dependencies = [tag_masks, sel_masks, con_masks, connection_labels, agg_labels, tag_labels,
+                                      con_num_labels, type_labels, sel_num_labels, where_num_labels, op_labels]
+                loss = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks,
+                             subheader_cls_list, value_masks, cls_index_list, train_dependencies=train_dependencies)
                 loss.backward()
                 if (i + 1) % accumulation_steps == 0:
                     optimizer.step()
@@ -1580,7 +1775,9 @@ class NL2SQL:
                     where_num_labels = valid_batch_data[17]
                     op_labels = valid_batch_data[18]
                     value_masks = valid_batch_data[19]
-                tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks, subheader_cls_list, value_masks, cls_indices)
+                tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits = model(
+                    input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks,
+                    subheader_cls_list, value_masks, cls_indices)
 
                 connection_labels = connection_labels.to('cpu').numpy().tolist()
                 agg_labels = agg_labels.to('cpu').numpy().tolist()
@@ -1611,9 +1808,15 @@ class NL2SQL:
                 op_labels_list.extend(op_labels)
                 op_logits_list.extend(op_logits)
 
-            logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list, type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list, op_logits_list]
-            labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list, type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list]
-            logical_acc = Evaluate.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list, valid_question_token_list, valid_table_id_list, valid_sample_index_list, valid_sql_list, valid_table_dict, valid_header_question_list, valid_header_table_id_list)
+            logits_lists = [tag_logits_list, agg_logits_list, connection_logits_list, con_num_logits_list,
+                            type_logits_list, sel_num_logits_list, where_num_logits_list, type_probs_list,
+                            op_logits_list]
+            labels_lists = [tag_labels_list, agg_labels_list, connection_labels_list, con_num_labels_list,
+                            type_labels_list, sel_num_labels_list, where_num_labels_list, op_labels_list]
+            logical_acc = Evaluate.evaluate(logits_lists, cls_index_list, labels_lists, valid_question_list,
+                                            valid_question_token_list, valid_table_id_list, valid_sample_index_list,
+                                            valid_sql_list, valid_table_dict, valid_header_question_list,
+                                            valid_header_table_id_list)
 
             score = logical_acc
             # logger.info("\nlogical_acc: %.3f\n\n" % (logical_acc))
@@ -1622,7 +1825,7 @@ class NL2SQL:
             if not self.debug and score > best_score:
                 best_score = score
                 state_dict = model.state_dict()
-                model_name = "../model/model{}.bin".format(time.strftime("%Y-%m-%d",time.localtime(time.time())))
+                model_name = "../model/model{}.bin".format(time.strftime("%Y-%m-%d", time.localtime(time.time())))
                 torch.save(state_dict, model_name)
             model.train()
         # del 训练相关输入和模型
@@ -1630,8 +1833,8 @@ class NL2SQL:
         for variable in training_history:
             del variable
         gc.collect()
-                        
-    def train_(self,batch_size,step_batch_size):
+
+    def train_(self, batch_size, step_batch_size):
         self.batch_size = batch_size
         self.step_batch_size = step_batch_size
         if self.debug: self.epochs = 1
@@ -1666,11 +1869,11 @@ class NL2SQL:
             # 加载每个 batch 并训练
             for i, batch_data in enumerate(train_iterator):
                 if torch.cuda.is_available():
-                    print('epoch:',epoch,'batchIndex:',i)
+                    print('epoch:', epoch, 'batchIndex:', i)
                     input_ids = batch_data[0].to(self.device)
                     tag_masks = batch_data[1].to(self.device)
-                    sel_masks = batch_data[2].to(self.device)   
-                    con_masks = batch_data[3].to(self.device)   
+                    sel_masks = batch_data[2].to(self.device)
+                    con_masks = batch_data[3].to(self.device)
                     type_masks = batch_data[4].to(self.device)
                     attention_masks = batch_data[5].to(self.device)
                     connection_labels = batch_data[6].to(self.device)
@@ -1688,8 +1891,11 @@ class NL2SQL:
                     op_labels = batch_data[18].to(self.device)
                     value_masks = batch_data[19].to(self.device)
                 if torch.sum(sel_masks) == 0 or torch.sum(con_masks) == 0 or torch.sum(tag_masks) == 0: continue
-                train_dependencies = [tag_masks, sel_masks, con_masks, connection_labels, agg_labels, tag_labels, con_num_labels, type_labels, sel_num_labels, where_num_labels, op_labels]
-                loss = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks, nextColumn_CLS_startPositionList, value_masks, firstColumn_CLS_startPositionList, train_dependencies=train_dependencies)
+                train_dependencies = [tag_masks, sel_masks, con_masks, connection_labels, agg_labels, tag_labels,
+                                      con_num_labels, type_labels, sel_num_labels, where_num_labels, op_labels]
+                loss = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks,
+                             nextColumn_CLS_startPositionList, value_masks, firstColumn_CLS_startPositionList,
+                             train_dependencies=train_dependencies)
                 loss.backward()
                 if (i + 1) % accumulation_steps == 0:
                     optimizer.step()
@@ -1736,7 +1942,9 @@ class NL2SQL:
                     where_num_labels = valid_batch_data[17].to(self.device)
                     op_labels = valid_batch_data[18].to(self.device)
                     value_masks = valid_batch_data[19].to(self.device)
-                tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits = model(input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks, nextColumn_CLS_startPositionList, value_masks, cls_indices)
+                tag_logits, agg_logits, connection_logits, con_num_logits, type_logits, sel_num_logits, where_num_logits, type_probs, op_logits = model(
+                    input_ids, attention_masks, type_masks, header_masks, question_masks, subheader_masks,
+                    nextColumn_CLS_startPositionList, value_masks, cls_indices)
 
                 connection_labels = connection_labels.to('cpu').numpy().tolist()
                 agg_labels = agg_labels.to('cpu').numpy().tolist()
@@ -1767,9 +1975,14 @@ class NL2SQL:
                 where_op_groundTruth.extend(op_labels)
                 where_op_predict.extend(op_logits)
 
-            logits_lists = [sequence_labeling_predict, select_agg_predict, where_relation_predict, where_conlumn_number_predict, sel_where_detemine_predict, select_number_predict, where_number_predict, type_probs_list, where_op_predict]
-            labels_lists = [sequence_labeling_groudTruth, select_agg_groundTruth, where_relation_groundTruth, where_conlumn_number_groundTruth, sel_where_detemine_groundTruth, select_number_groundTruth, where_number_groundTruth, where_op_groundTruth]
-            logical_acc = Evaluate.evaluate(logits_lists, firstColumn_CLS_startPositionList, labels_lists,ValidFeaturesLabels,valid_tableData)
+            logits_lists = [sequence_labeling_predict, select_agg_predict, where_relation_predict,
+                            where_conlumn_number_predict, sel_where_detemine_predict, select_number_predict,
+                            where_number_predict, type_probs_list, where_op_predict]
+            labels_lists = [sequence_labeling_groudTruth, select_agg_groundTruth, where_relation_groundTruth,
+                            where_conlumn_number_groundTruth, sel_where_detemine_groundTruth, select_number_groundTruth,
+                            where_number_groundTruth, where_op_groundTruth]
+            logical_acc = Evaluate.evaluate(logits_lists, firstColumn_CLS_startPositionList, labels_lists,
+                                            ValidFeaturesLabels, valid_tableData)
             score = logical_acc
             # logger.info("\nlogical_acc: %.3f\n\n" % (logical_acc))
             logger.info("\nepoch: %d, logical_acc: %.3f\n\n" % (epoch, logical_acc))
@@ -1777,27 +1990,41 @@ class NL2SQL:
             if not self.debug and score > best_score:
                 best_score = score
                 state_dict = model.state_dict()
-                model_name = "../model/model{}.bin".format(time.strftime("%Y-%m-%d",time.localtime(time.time())))
+                model_name = "../model/model{}.bin".format(time.strftime("%Y-%m-%d", time.localtime(time.time())))
                 torch.save(state_dict, model_name)
 
             model.train()
         # del 训练相关输入和模型
-        training_history = [train_iterator, valid_iterator, model, optimizer, param_optimizer, optimizer_grouped_parameters]
+        training_history = [train_iterator, valid_iterator, model, optimizer, param_optimizer,
+                            optimizer_grouped_parameters]
         for variable in training_history:
             del variable
         gc.collect()
 
+def model_config():
+    parser = argparse.ArgumentParser()
+    data_arg = parser.add_argument_group("Data")
+    data_arg.add_argument("--data_dir", type=str, default="./data")
+    data_arg.add_argument("--model_dir", type=str, default="./model")
+    data_arg.add_argument("--log_dir", type=str, default="./code/log_bad_cases")
+    data_arg.add_argument("--submit_dir", type=str, default="./submit")
+    data_arg.add_argument("--log_path", type=str, default="./code/log_bad_cases/nl2sql.log")
+
+    config = parser.parse_args()
+    return config
+
+
 if __name__ == "__main__":
-    with timer('初始化'):
-        data_dir = "../data"
-        nl2sql = NL2SQL(data_dir, epochs=4, batch_size=16, step_batch_size=16, max_len=128, debug=False)
+    config = model_config()
+    logger = get_train_logger(config.log_path)
+    with timer('initializing'):
+        data_dir = config.data_dir
+        model_dir = config.model_dir
+        nl2sql = NL2SQL(config, epochs=4, batch_size=16, step_batch_size=16, max_len=128, debug=False)
     # with timer('训练'):
     #     # nl2sql.train(batch_size=16, step_batch_size=16)
     #     nl2sql.train()
     # with timer('验证'):
     #     nl2sql.test(batch_size=64, step_batch_size=64, do_evaluate=True, do_test=False)
-    with timer('预测'):
-        nl2sql.test(batch_size=64, step_batch_size=64, do_evaluate=False, do_test=True)
-
-
-
+    with timer('predicting'):
+        nl2sql.test(batch_size=32, step_batch_size=16, do_evaluate=False, do_test=True)

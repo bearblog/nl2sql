@@ -10,12 +10,12 @@
 ossutil64
 
 saved_model/
-data/
+data/*
 img/
 result/
 submit/
 0804/
-model/
+model/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

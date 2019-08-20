@@ -1,10 +1,12 @@
-import numpy as np
-from sklearn.metrics import *
+import os
 import copy
 import json
+import time
+import numpy as np
+from sklearn.metrics import *
 from modules.regex_engine import RegexEngine
 from modules.schema_linking import SchemaLiking
-import time
+
 
 class Evaluate:
     @staticmethod
@@ -36,7 +38,7 @@ class Evaluate:
             f1_list.append(f1)
         acc = accuracy_score(y_true, y_pred)
         output_str = "overall_acc:%.3f, avg_pre:%.3f, avg_rec:%.3f, avg_f1:%.3f \n" % (
-        acc, np.mean(pre_list), np.mean(rec_list), np.mean(f1_list))
+            acc, np.mean(pre_list), np.mean(rec_list), np.mean(f1_list))
         output_str += detail_output_str
         return output_str
 
@@ -47,30 +49,33 @@ class Evaluate:
                (set([tuple(i) for i in s1['conds']]) == set([tuple(i) for i in s2['conds']]))
 
     @staticmethod
-    def evaluate(logits_lists, firstColumn_CLS_startPositionList, labels_lists, question_list, question_tokens, table_id_list, eachData_index, sql_list_groundTruth, tableData, column_queryList, column_tableidList, do_test=False):
+    def evaluate(logits_lists, firstColumn_CLS_startPositionList, labels_lists, question_list, question_tokens,
+                 table_id_list, eachData_index, sql_list_groundTruth, tableData, column_queryList, column_tableidList,
+                 config, do_test=False):
         [
-            sequence_labeling_predict, 
-            select_agg_predict, 
-            where_relation_predict, 
-            where_conlumn_number_predict, 
-            sel_where_detemine_predict, 
-            select_number_predict, 
-            where_number_predict, 
-            selWhere_detemine_probs_list, 
+            sequence_labeling_predict,
+            select_agg_predict,
+            where_relation_predict,
+            where_conlumn_number_predict,
+            sel_where_detemine_predict,
+            select_number_predict,
+            where_number_predict,
+            selWhere_detemine_probs_list,
             where_op_predict
-            ] = logits_lists
+        ] = logits_lists
         [
-            sequence_labeling_groudTruth, 
-            select_agg_groundTruth, 
-            where_relation_groundTruth, 
-            where_conlumn_number_groundTruth, 
-            sel_where_detemine_groundTruth, 
-            select_number_groundTruth, 
-            where_number_groundTruth, 
+            sequence_labeling_groudTruth,
+            select_agg_groundTruth,
+            where_relation_groundTruth,
+            where_conlumn_number_groundTruth,
+            sel_where_detemine_groundTruth,
+            select_number_groundTruth,
+            where_number_groundTruth,
             where_op_groundTruth
-            ] = labels_lists
+        ] = labels_lists
 
-        f_valid = open("./log_bad_cases/badcases{}.txt".format(time.strftime("%Y-%m-%d",time.localtime(time.time()))), 'w')
+        f_valid = open(os.path.join(config.log_dir, "badcases{}.txt".format(time.strftime("%Y-%m-%d", time.localtime(time.time())))),
+                       'w', encoding="utf-8")
         # {"agg": [0], "cond_conn_op": 2, "sel": [1], "conds": [[3, 0, "11"], [6, 0, "11"]]}
         sql_template_forPredict = {"agg": [], "cond_conn_op": None, "sel": [], "conds": []}
         sql_finalPredict = []
@@ -81,7 +86,7 @@ class Evaluate:
             eachQuestion = question_list[i]
             eachQuestion_token = question_tokens[i]
             eachtableID = table_id_list[i]
-            if do_test is False : eachSQL_groundTruth = sql_list_groundTruth[i]
+            if do_test is False: eachSQL_groundTruth = sql_list_groundTruth[i]
             eachSequence_LabelingPredict = sequence_labeling_predict[start_index: end_index]
             eachSelect_aggPredict = select_agg_predict[start_index: end_index]
             eachWhere_relationPredict = where_relation_predict[start_index: end_index]
@@ -100,7 +105,7 @@ class Evaluate:
             for row in each_columnRowList:
                 for each_column, value in enumerate(row):
                     each_columnDict[each_column].append(str(value))
-            
+
             # 维护一个模型预测出来的值到矫正过的值的一个哈希映射
             value_Mapping = []
             # 联合概率确定 select 子句
@@ -113,7 +118,8 @@ class Evaluate:
                 where_prob = selWhere_detemine_probs[1]
                 agg = eachSelect_aggPredict[j]
                 select_column = j
-                selectProbability_list.append({"prob": select_prob, "selWhere_detemine": column_type, "sel": select_column, "agg": agg})
+                selectProbability_list.append(
+                    {"prob": select_prob, "selWhere_detemine": column_type, "sel": select_column, "agg": agg})
                 tag_list = eachSequence_LabelingPredict[j][1: each_firstColumn_CLS_startPosition - 1]
                 con_num = eachWhere_columnNumberPredict[j]
                 col_op = eachWhere_opPredict[j]
@@ -156,7 +162,9 @@ class Evaluate:
                     col_values = each_columnDict[j]
                     op = col_op
                     candidate_value_set = set()
-                    new_value, longest_digit_num, longest_chinese_num = RegexEngine.find_longest_num(value_str, eachQuestion, value_start_index)
+                    new_value, longest_digit_num, longest_chinese_num = RegexEngine.find_longest_num(value_str,
+                                                                                                     eachQuestion,
+                                                                                                     value_start_index)
                     candidate_value_set.add(value_str)
                     candidate_value_set.add(new_value)
                     if longest_digit_num:
@@ -169,8 +177,8 @@ class Evaluate:
                             candidate_value_set.add(digit)
                     replace_candidate_set = RegexEngine.create_candidate_set(value_str)
                     candidate_value_set |= replace_candidate_set
-                    final_value = value_str  
-                    if op != 2:  
+                    final_value = value_str
+                    if op != 2:
                         if longest_digit_num:
                             final_value = longest_digit_num
                             if final_value != value_str: value_Mapping.append([value_str, final_value])
@@ -186,19 +194,24 @@ class Evaluate:
                                 if final_value != value_str: value_Mapping.append([value_str, final_value])
                             else:
                                 value_Mapping.append([value_str, "丢弃"])
-                                continue  
+                                continue
                     con_list.append([con_col, op, final_value])
                 if len(con_list) == con_num:
                     for [con_col, op, final_value] in con_list:
-                        whereProbability_list.append({"prob": where_prob, "selWhere_detemine":column_type, "cond": [con_col, op, final_value]})
+                        whereProbability_list.append(
+                            {"prob": where_prob, "selWhere_detemine": column_type, "cond": [con_col, op, final_value]})
                 else:
                     if len(con_list) > 0:
                         [con_col, op, final_value] = con_list[0]
-                        whereProbability_list.append({"prob": where_prob, "selWhere_detemine":column_type, "cond": [con_col, op, final_value]})
+                        whereProbability_list.append(
+                            {"prob": where_prob, "selWhere_detemine": column_type, "cond": [con_col, op, final_value]})
             sel_num = max(eachSelect_numberPredict, key=eachSelect_numberPredict.count)
             where_num = max(eachWhere_numberPredict, key=eachWhere_numberPredict.count)
-            selectProbability_list = sorted(selectProbability_list, key=lambda x: (-x["selWhere_detemine"], x["prob"]), reverse=True)
-            whereProbability_list = sorted(whereProbability_list, key=lambda x: (-(x["selWhere_detemine"] ** 2 - 1) ** 2, x["prob"]), reverse=True)
+            selectProbability_list = sorted(selectProbability_list, key=lambda x: (-x["selWhere_detemine"], x["prob"]),
+                                            reverse=True)
+            whereProbability_list = sorted(whereProbability_list,
+                                           key=lambda x: (-(x["selWhere_detemine"] ** 2 - 1) ** 2, x["prob"]),
+                                           reverse=True)
             if where_num <= 1 or len(whereProbability_list) == 0:
                 connection = 0
             else:
@@ -222,7 +235,8 @@ class Evaluate:
                     f_valid.write("%s\n" % str(eachQuestion))
                     f_valid.write("%s\n" % str(sql_forPredict))
                     f_valid.write("%s\n" % str(eachSQL_groundTruth))
-                    cols = set(map(lambda x: x[0], sql_forPredict["conds"])) | set(map(lambda x: x[0], eachSQL_groundTruth["conds"]))
+                    cols = set(map(lambda x: x[0], sql_forPredict["conds"])) | set(
+                        map(lambda x: x[0], eachSQL_groundTruth["conds"]))
                     for j, table_header in enumerate(each_conlumnList):
                         if j in cols:
                             f_valid.write("%d、%s\n" % (j, table_header))
@@ -234,7 +248,10 @@ class Evaluate:
             return logical_acc
 
         else:
-            f_result = open("../submit/result{}.json".format(time.strftime("%Y-%m-%d",time.localtime(time.time()))), 'w')
+            # f_result = open(os.path.join(config.submit_dir, "result{}.json".format(time.strftime("%Y-%m-%d", time.localtime(time.time())))),
+            #                 'w', encoding="utf-8")
+            f_result = open(os.path.join(config.submit_dir, "result.json"),
+                            'w', encoding="utf-8")
             for each_sql_predict in sql_finalPredict:
                 sql_jsonFile = json.dumps(each_sql_predict, ensure_ascii=False)
                 f_result.write(sql_jsonFile + '\n')
