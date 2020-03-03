@@ -9,13 +9,18 @@
 *.zip
 ossutil64
 
+# Project specified
+.idea/
 saved_model/
-data/*
 img/
 result/
-submit/
-0804/
+submit/*
+data/*
 model/*
+
+!data/.gitkeep
+!model/.gitkeep
+!submit/.gitkeep
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

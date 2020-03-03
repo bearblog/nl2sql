@@ -1,1 +1,1 @@
-python ./code/test.py --data_dir "/data" --submit_dir "./"
+python ./code/test.py --data_dir "/tcdata" --submit_dir "./"
